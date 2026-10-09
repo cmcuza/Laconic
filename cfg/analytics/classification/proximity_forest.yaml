@@ -1,0 +1,10 @@
+model:
+  name: ProximityForest
+  kwargs:
+    n_trees: 20
+    n_splitters: 5
+    max_depth: 10
+    n_jobs: 10
+metrics:
+  primary: balanced_accuracy
+  extra: [accuracy, balanced_accuracy, precision_macro, recall_macro, f1_macro, roc_auc_macro, pr_auc_macro]

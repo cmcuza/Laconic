@@ -1,0 +1,19 @@
+name: genetic
+kwargs:
+  # Percentage-based sizing, resolved against the experiment `--budget` before
+  # GeneticOptimizer is constructed.
+  pop_size: 12          # percentage of the evaluation budget
+  gens: 8               # absolute number of generations
+  cx_prob: 0.8
+  mut_prob: 0.5
+  mut_per_var_prob: 0.6
+  sigma_frac: 0.05
+  log_sigma: 0.75
+  elitism: 1            # percentage of the evaluation budget
+  tournament_k: 3       # fixed across budgets to preserve selection pressure
+  early_stop_patience: 999     # effectively disabled: spend the configured budget
+  n_workers: 8
+  batch_timeout_sec: 3600   # deadlock net, not a perf budget: abort if one batch
+                            # of parallel evaluations stalls. null = wait forever.
+  alpha: 0.75
+  verbose: 1

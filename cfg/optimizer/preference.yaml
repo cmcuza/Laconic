@@ -1,0 +1,54 @@
+# Preference-elicitation GA. See optimizer/preference.py for the design
+# rationale (D-numbers below refer to its module docstring) and
+# docs/PREFERENCE_OPTIMIZER.md for the framework wiring.
+#
+# `oracle` is built by run_experiments.py from `--oracle`/cfg/oracle/*.yaml
+# (hidden_weight filled in from the resolved --alpha) and injected as a kwarg
+# before construction -- not present in this file. `alpha` below is that same
+# resolved value: for this optimizer it means the ground-truth target the
+# oracle is built from and benchmarked against, not a directly-applied weight
+# (the real one is elicited as `w`, see WeightPosterior.mean).
+#
+# Deliberately absent (not accepted by the constructor): early_stop_patience
+# (disabled internally), random_state (per-run, not config),
+# min_slope/min_metric_gap (no second query filter exists -- min_sep below is
+# the only one).
+
+name: preference
+kwargs:
+  beta: 80.0            # BT sharpness, fixed for the run (D10). calibrate_beta() on raw coords measures ~80.
+                         # Front geometry is task-specific, so this is a default, not a universal:
+                         # calibrate_beta(delta=0.5) over the 25 clustering/KShape fronts recommends a
+                         # pooled median ~178 (per dataset 46 Coffee .. 403 Wine). Override per task with
+                         # run_experiments.py --beta rather than retuning this shared value.
+  n_grid: 200            # posterior grid resolution over w.
+  prior_alpha: 2.0       # Beta(2,2): keeps w away from 0/1 without evidence. Beta(1,1) = uniform.
+  prior_beta: 2.0
+  comparison_every: 1    # DEAD: the generation gate it drove was removed from maximize(); still logged.
+  comparisons_per_round: 2  # asks per generation. At gens=8 a single ask per round caps the run at 8,
+                         # so max_comparisons below was unreachable by construction. The posterior is
+                         # updated between asks, so the second query of a round is chosen against what
+                         # the first taught; repeats are excluded outright (see select_query).
+  max_comparisons: 12    # hard cap; never stopped early on "looks stable" (D11).
+  min_sep: 0.05          # query filter: reject unless max(metric_gap, -compression_gap) >= min_sep.
+                         # Constructor's own default is still 0.1; this value wins whenever the file is loaded.
+  credible_mass: 0.90
+
+  # GA mechanics, matching genetic.yaml's tuned values, including percentage-
+  # based pop_size/elitism (resolved against --budget by the same
+  # resolve_genetic_percentages_for_budget() genetic.yaml uses). 12 + 8*(12-1) = 100.
+  pop_size: 12           # percentage of the evaluation budget
+  gens: 8                # absolute number of generations
+  elitism: 1              # percentage of the evaluation budget
+  cx_prob: 0.8
+  mut_prob: 0.5
+  mut_per_var_prob: 0.6
+  sigma_frac: 0.05
+  log_sigma: 0.75
+  tournament_k: 3
+
+  n_workers: 8           # 1 for serial debugging (see preference.py's __main__).
+  batch_timeout_sec: 3600
+  alpha: 0.75
+  verbose: 1
+  log_subdir: _preference

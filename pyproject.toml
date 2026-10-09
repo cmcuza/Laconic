@@ -1,0 +1,56 @@
+[tool.poetry]
+name = "laconic-clean"
+version = "0.1.0"
+description = "Laconic, scoped down to the compression backends/optimizers currently under active study (see CLAUDE.md)"
+authors = []
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+
+# PyTorch (CUDA 12.8 wheels) - used by bosmp (BoTorch) and forecasting's DLinear
+torch = { version = "*", source = "pytorch" }
+
+# Bayesian optimization stack for bosmp (tunes the sz/mixpiece/serfxor baselines)
+botorch = "*"
+gpytorch = "*"
+
+# ML / time series
+numpy = "*"
+pandas = "*"
+scikit-learn = "*"
+scipy = "*"
+xgboost = "*"
+aeon = "*"
+darts = "*"
+numba = "*"
+joblib = "*"
+tqdm = "*"
+
+# Feature extraction (aeon's TSFreshClassifier/TSFreshClusterer wrap this)
+tsfresh = "*"
+
+# Compression backends
+pyyaml = "*"
+zstandard = "*"
+tersets = { git = "https://github.com/cmcuza/TerseTS.git", subdirectory = "bindings/python" }
+jpype1 = "*"
+
+# Plotting
+matplotlib = "*"
+seaborn = "*"
+
+# Statistics (Friedman/Nemenyi + critical-difference diagrams)
+scikit-posthocs = "*"
+
+# Experiment tracking
+mlflow = ">=3.8,<4"
+
+[[tool.poetry.source]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu128"
+priority = "supplemental"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,7 @@
+name: serfxor
+methods: 
+  - Serfxor
+bounds:
+  serfxor_error: [0.001, 0.3]
+space:
+  serfxor_error: { type: float, scale: linear }

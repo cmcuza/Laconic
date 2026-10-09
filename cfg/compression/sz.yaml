@@ -1,0 +1,7 @@
+name: sz
+methods: 
+  - SZ  
+bounds:
+  sz_error: [0.001, 0.3]
+space:
+  sz_error: { type: float, scale: linear }

@@ -1,0 +1,20 @@
+# A one-dataset group holding only hentropy_weather (see
+# data/forecasting/Monash/hentropy_weather_dataset.tsf) - the single series
+# T1961 from weather_dataset.tsf, picked to maximize an entropy/length
+# trade-off instead of weather's default rule (pick the longest series in the
+# file, which for weather is T378: 52.5% exact-zero values, 2.21 bits
+# entropy). Its own group, not added to monash_small/monash_medium's
+# `datasets:` list, so results here never mix with or overwrite "weather"'s.
+loader:
+  name: MonashLoader
+  kwargs: {root: data/forecasting/Monash}
+
+split:
+  type: DartsSplitter
+  n_splits: 5
+  val_prop: 0.2
+  gap: 0
+  mode: temporal
+
+datasets:
+    - hentropy_weather

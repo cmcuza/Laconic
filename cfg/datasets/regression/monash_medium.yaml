@@ -1,0 +1,13 @@
+loader:
+  name: MonashUCRLoader
+  kwargs: {root: data/regression/Monash-UCR}        # root, cache_dir, etc., if needed
+
+split:
+  type: KFold
+  shuffle: True
+  n_splits: 5
+
+datasets:
+  - LiveFuelMoistureContent
+  # - BeijingPM10Quality
+  # - NewsHeadlineSentiment

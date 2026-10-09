@@ -1,0 +1,12 @@
+model:
+  name: KMedoids
+  kwargs:
+    n_clusters: 8
+    init: random
+    distance: msm
+    method: pam
+    n_init: 20
+    verbose: 0
+metrics:
+  primary: ari
+  extra: [ari, nmi, ami, homogeneity, completeness, v_measure, fmi, purity]

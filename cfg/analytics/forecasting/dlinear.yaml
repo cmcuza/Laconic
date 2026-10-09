@@ -1,0 +1,15 @@
+model:
+  name: DLinear
+  kwargs:
+    verbose: 0
+    learning_rate: 0.001
+    train_epochs: 100
+    batch_size: 64
+    kernel_size: 25
+    hidden_dim: 128
+    num_layers: 2
+    dropout: 0.1
+    activation: gelu
+metrics:
+  primary: imaape
+  extra: [imaape, maape, smape, rmse, mae, r2]

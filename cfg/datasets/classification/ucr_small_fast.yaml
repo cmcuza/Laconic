@@ -1,0 +1,21 @@
+# Split of ucr_small purely for SCHEDULING - identical loader/split block, so a
+# run over either half writes exactly what the full group would for those
+# datasets (results and traces are keyed by dataset, never by group name).
+# CricketX and Adiac dominate a classification cell (measured ~2h each at
+# budget 150 against minutes for the rest), so running them as their own
+# stream stops them from holding the other six behind them.
+loader:
+  name: UCRLoader
+  kwargs:
+    root: data/classification/UCRArchive_2018
+split:
+  type: StratifiedShuffleSplit
+  n_splits: 5
+  test_size: 0.2
+datasets:
+- Wine
+- Plane
+- Coffee
+- Lightning2
+- ECG200
+- Wafer

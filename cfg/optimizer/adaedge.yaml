@@ -1,0 +1,16 @@
+name: adaedge
+kwargs:
+  # 21 = 7 warm-start evaluations per arm at the three baselines; keep it a
+  # multiple of the arm count so the warm start stays balanced.
+  init_points: 21
+  n_iter: 79
+  beta: 0.75
+  num_restarts: 5
+  raw_samples: 32
+  duplicate_tol: 1.0e-4
+  verbose: 1
+  alpha: 0.75
+  device: auto
+  log_dir: .logs
+  log_subdir: _adaedge_opt
+  log_process: true

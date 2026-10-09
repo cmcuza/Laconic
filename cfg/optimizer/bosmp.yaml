@@ -1,0 +1,12 @@
+name: bosmp
+kwargs:
+  init_points: 20
+  n_iter: 80
+  num_restarts: 5
+  raw_samples: 32
+  verbose: 1
+  alpha: 0.75
+  device: auto
+  log_dir: .logs
+  log_subdir: _bosmp_opt
+  log_process: true

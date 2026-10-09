@@ -1,0 +1,7 @@
+name: stochastic_oracle
+
+kwargs:
+  reliability: 0.95 # Different experiments may want to sweep this factor, but the default is 0.95.
+  beta: 80.0 # Still tunning this factor.
+
+

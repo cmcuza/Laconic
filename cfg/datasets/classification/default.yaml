@@ -1,0 +1,12 @@
+loader:
+  name: UCRLoader
+  kwargs: {root: data/classification/UCRArchive_2018}        # root, cache_dir, etc., if needed
+
+split:
+  type: StratifiedShuffleSplit
+  n_splits: 5
+  test_size: 0.2
+
+datasets:
+  - Lightning2
+  - ECG200

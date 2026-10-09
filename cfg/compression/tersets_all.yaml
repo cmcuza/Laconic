@@ -1,0 +1,30 @@
+name: tersets_reduced
+methods:
+  - SlideFilter
+  - SwingFilter
+  - VW
+  - PoorMansCompressionMean
+  - MixPiece
+  - DFT
+  - SerfQT
+  - SerfXOR
+  - MacaqueS
+  - MacaqueV
+  - BitPackedBUFF
+  - BitPackedQuantization
+  - DeltaFORPFOREncoding
+  - DeltatoDeltaPFOREncoding
+  - DeltaEliasGammaEncoding
+  - DeltaEncoding
+bounds:
+  logical_method_index: [0, 5]
+  coefficient_method_index: [6, 11]
+  indices_method_index: [12, 15]
+  logical_method_error: [0.001, 0.15]
+  coefficient_method_error: [1e-05, 0.01]
+space:
+  logical_method_index: {type: int, scale: linear}
+  coefficient_method_index: {type: int, scale: linear}
+  indices_method_index: {type: int, scale: linear}
+  logical_method_error: {type: float, scale: log, significant_digits: 2}
+  coefficient_method_error: {type: float, scale: log, significant_digits: 2}

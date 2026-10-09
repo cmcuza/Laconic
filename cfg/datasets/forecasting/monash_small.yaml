@@ -1,0 +1,20 @@
+loader:
+  name: MonashLoader
+  kwargs: {root: data/forecasting/Monash}        # root, cache_dir, etc., if needed
+  
+split:
+  type: DartsSplitter
+  n_splits: 5
+  val_prop: 0.2 # optional gap between train/val
+  gap: 0
+  mode: temporal
+
+datasets:
+    - pedestrian
+    - traffic
+    - solar10minutes
+    - hentropy_weather
+    - oikolab
+    - australian
+    - saugeenday
+

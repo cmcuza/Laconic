@@ -1,0 +1,7 @@
+name: mixpiece
+methods: 
+  - MixPiece
+bounds:
+  mixpiece_error: [0.001, 0.3]
+space:
+  mixpiece_error: { type: float, scale: linear }

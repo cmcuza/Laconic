@@ -1,0 +1,11 @@
+model:
+  name: KShape
+  kwargs:
+    n_clusters: 8
+    init: random
+    n_init: 10
+    tol: 1e-4
+    verbose: 0
+metrics:
+  primary: ari
+  extra: [ari, nmi, ami, homogeneity, completeness, v_measure, fmi, purity]
