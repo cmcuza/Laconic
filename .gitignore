@@ -100,9 +100,6 @@ out/
 # symlink's target verbatim, so committing them bakes one person's absolute
 # path into the repo and dangles everywhere else - each checkout creates its
 # own. See "Datasets" in README.md.
-/data/classification
-/data/forecasting
-/data/regression
 
 # Pre-rewrite snapshots taken by scripts/fix_forecasting_test_window.py
 .backups/
