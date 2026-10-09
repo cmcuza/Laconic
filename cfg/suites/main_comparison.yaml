@@ -1,26 +1,7 @@
-# Main Laconic-vs-baselines comparison: tersets_mab under all three currently
-# studied optimizers (random/successive_halving/genetic), against the three
-# baseline compressors (sz/mixpiece/serfxor) each tuned by bosmp.
-#
-# Run with:
-#   python run_suite.py cfg/suites/main_comparison.yaml
-#   python run_suite.py cfg/suites/main_comparison.yaml --dry-run   # preview the commands first
-# or the thin ergonomic wrapper:
-#   ./scripts/run_full_suite.sh
-#
-# "An experiment" here means one (budget, alpha, random_states) triple applied
-# across the whole task x compressor x optimizer matrix below - see CLAUDE.md's
-# "What defines an experiment". These are the project's current defaults;
-# change them here (not per cfg/optimizer/<name>.yaml file) to sweep a
-# different experiment.
 random_states: [32]
-alpha: [0.5, 0.75] # 0.75, 0.25, 0.5, 
-beta: 80
+alpha: [0.5, 0.75]
 budget: 100
 
-# One model per task, matching what's currently being compared (see CLAUDE.md).
-# Each task's other configured model (tsfresh, kmedoids, dlinear) still works
-# via a direct run_experiments.py --model call; just not part of this suite.
 tasks:
   # - analytics: classification
   #   dataset: ucr_small
@@ -35,9 +16,8 @@ tasks:
     dataset: monash_small
     model: rocket
 
-
 compressors:
-  - compression: tersets_mab
+  - compression: laconic
     optimizers: [genetic]
   # - compression: sz
   #   optimizers: [bosmp]
@@ -48,7 +28,4 @@ compressors:
   # - compression: adaedge
   #   optimizers: [adaedge]
 
-# After the whole sweep finishes, regenerate results/figures/*.pdf and log PNG
-# copies to MLflow (analytics_compression_trade_off.py, correlations.py,
-# bomab_results_viz.py) - set to false to only run the experiments.
 auto_visualize: false

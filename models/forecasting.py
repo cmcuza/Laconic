@@ -20,12 +20,6 @@ def _make_supervised(
     prediction_len: int,
     sequence_len: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Build supervised samples with configurable input and target window sizes.
-    X[i] contains `sequence_len` historical points and Y[i] contains the next
-    `prediction_len` points. When `sequence_len` is omitted, use the same
-    signature as XGBoostModel: input length == prediction length.
-    """
     y = np.asarray(y, dtype=float).reshape(-1)
     sequence_len = int(prediction_len if sequence_len is None else sequence_len)
     prediction_len = int(prediction_len)
@@ -55,10 +49,8 @@ def _clean_xgb_params(p: dict) -> dict:
     float_keys= {'learning_rate','subsample','colsample_bytree','reg_alpha','reg_lambda','gamma'}
     out = {}
     for k, v in (p or {}).items():
-        # unwrap 1-length containers
         if isinstance(v, (list, tuple, np.ndarray)) and np.size(v) == 1:
             v = v[0]
-        # cast to the expected type
         if k in int_keys:
             v = int(v)
         elif k in float_keys:
@@ -67,16 +59,13 @@ def _clean_xgb_params(p: dict) -> dict:
     return out
 
 class moving_avg(nn.Module):
-    """
-    Moving average block to highlight the trend of time series
-    """
+    """Moving average block to highlight the trend of time series."""
     def __init__(self, kernel_size, stride):
         super(moving_avg, self).__init__()
         self.kernel_size = kernel_size
         self.avg = nn.AvgPool1d(kernel_size=kernel_size, stride=stride, padding=0)
 
     def forward(self, x):
-        # padding on the both ends of time series
         front = x[:, 0:1, :].repeat(1, (self.kernel_size - 1) // 2, 1)
         end = x[:, -1:, :].repeat(1, (self.kernel_size - 1) // 2, 1)
         x = torch.cat([front, x, end], dim=1)
@@ -86,9 +75,7 @@ class moving_avg(nn.Module):
 
 
 class series_decomp(nn.Module):
-    """
-    Series decomposition block
-    """
+    """Series decomposition block."""
     def __init__(self, kernel_size):
         super(series_decomp, self).__init__()
         self.moving_avg = moving_avg(kernel_size, stride=1)
@@ -99,9 +86,7 @@ class series_decomp(nn.Module):
         return res, moving_mean
 
 class DLinearModel(nn.Module):
-    """
-    DLinear
-    """
+    """DLinear."""
     def __init__(
         self,
         sequence_len,
@@ -159,17 +144,15 @@ class DLinearModel(nn.Module):
         raise ValueError(f"Unsupported DLinear activation: {name}")
 
     def forward(self, x):
-        # x: [Batch, Input length, Channel]
         seasonal_init, trend_init = self.decompsition(x)
         seasonal_init, trend_init = seasonal_init.permute(0, 2, 1), trend_init.permute(0, 2, 1)
         seasonal_output = self.Linear_Seasonal(seasonal_init)
         trend_output = self.Linear_Trend(trend_init)
         x = seasonal_output + trend_output
-        return x.permute(0,2,1) # to [Batch, Output length, Channel]
+        return x.permute(0,2,1)
 
 
 def adjust_learning_rate(optimizer, epoch, args):
-    # lr = args.learning_rate * (0.2 ** (epoch // 2))
     if args.lradj=='type1':
         lr_adjust = {epoch: args.learning_rate * (0.5 ** ((epoch-1) // 1))}
     elif args.lradj=='type2':
@@ -199,7 +182,7 @@ class DLinear(Forecasting):
         self.num_layers = int(kwargs.get("num_layers", 1))
         self.dropout = float(kwargs.get("dropout", 0.0))
         self.activation = str(kwargs.get("activation", "gelu"))
-        self.random_state = int(kwargs["random_state"])  # injected by run_experiments; a silent 32 here would hide a broken injection
+        self.random_state = int(kwargs["random_state"])
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         if self.seq_len <= 0 or self.horizon <= 0:

@@ -34,16 +34,12 @@ def _cast_by_space_type(value: float, space_meta: Dict[str, Any], field_name: st
         return float(value)
     raise ValueError(f"Unsupported type '{space_meta['type']}' in space definition for '{field_name}'.")
 
-# ---------- Common interface ----------
 class Backend(Protocol):
     def __init__(self, bounds: dict, params: dict | None = None): ...
     def bounds(self) -> Dict[str, Tuple[float, float]]: ...
     def params_from_vector(self, v: Dict[str, float]) -> Dict[str, Any]: ...
     def apply(self, series: List[float], params: Dict[str, Any]) -> Tuple[List[float], float]: ...
 
-# ---------- Registry ----------
-# Maps a config name to the backend *class*; `bounds`/`params` are not stored
-# here, they are the constructor arguments build_backend forwards per call.
 _BACKENDS: Dict[str, Type[Backend]] = {}
 
 def register_backend(name: str, backend_cls: Type[Backend]) -> None:
@@ -54,12 +50,10 @@ def build_backend(name: str, bounds: dict, params: dict) -> Backend:
         backend_cls = _BACKENDS[name]
     except KeyError:
         raise ValueError(f"Unknown backend '{name}'. Registered: {list(_BACKENDS)}") from None
-    # Deliberately outside the try: a KeyError raised inside a backend's
-    # __init__ must not be reported as an unknown backend name.
     return backend_cls(bounds, params)
 
 class TerseTSBackend(Backend):
-    names = ["tersets_mab", "tersets_reduced"]
+    names = ["laconic", "tersets_reduced"]
 
     def __init__(self, bounds: dict, params: dict):
         self._bounds = bounds
@@ -126,7 +120,6 @@ class TerseTSBackend(Backend):
         }
 
     def apply(self, series: List[float], params: Dict[str, Any]) -> Tuple[List[float], float]:
-        # tersets_compress_series returns (reconstruction, cr) – see lib/tersets.py
         recon, cr = tersets_compress_series(series, params)
         return recon, cr
 
@@ -167,15 +160,7 @@ class MixPieceBackend(Backend):
         return recon, cr
 
 class SerfXOR(Backend):
-    """SerfXOR, windowed + digit-adjusted encoder (what was `serfxor_v2`).
-
-    There used to be two registered SerfXORs, `serfxor` (single-shot) and
-    `serfxor_v2`, so the two could be compared side by side. They were
-    collapsed once v2 won: carrying both meant every results tree, `.logs/`
-    path, MLflow `compressor=` param and plot label had to encode a
-    distinction that no longer decided anything. The v1 results and traces
-    were removed with it, so nothing under the `serfxor` name predates this.
-    """
+    """SerfXOR, windowed + digit-adjusted encoder (what was `serfxor_v2`)."""
     name = "serfxor"
 
     def __init__(self, bounds: dict, params: dict | None = None):
@@ -194,16 +179,7 @@ class SerfXOR(Backend):
 
 
 class AdaEdgeBackend(Backend):
-    """One of the three baselines, *chosen per evaluation* from a method index.
-
-    Where SZBackend/MixPieceBackend/SerfXOR each expose one compressor and one
-    error, this backend exposes `method_index` + one shared `adaedge_error` so
-    an optimizer can treat compressor choice as a bandit arm. That is only
-    honest because the three are directly interchangeable here: identical
-    `(series, error_bound)` call contract and identical [0.01, 0.3] range in
-    cfg/compression/{sz,mixpiece,serfxor}.yaml. If a future member needs its
-    own range, this becomes a per-arm-bounds problem, not another entry.
-    """
+    """One of the three baselines, *chosen per evaluation* from a method index."""
     name = "adaedge"
 
     _COMPRESSORS = {
@@ -243,7 +219,6 @@ class AdaEdgeBackend(Backend):
         return recon, cr
 
 
-# Register backends.
 for _tersets_name in TerseTSBackend.names:
     register_backend(_tersets_name, TerseTSBackend)
 

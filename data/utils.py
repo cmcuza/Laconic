@@ -5,7 +5,6 @@ import os
 
 from tqdm import tqdm
 
-# from loaders import UCRLoader
 from datetime import datetime
 from typing import Optional, Tuple, Iterable
 
@@ -14,17 +13,15 @@ def summarize_monash_sizes_by_cluster(folder: str) -> pd.DataFrame:
     records = []
 
     for tsf_path in folder.glob("*.tsf"):
-        name = tsf_path.stem  # filename without extension
+        name = tsf_path.stem
         parts = name.split("_")
         
         name = "_".join(parts[:-1])
 
-        # Count rows (number of time steps). Simple & robust:
         try:
             df,fr,fg,c,ce = convert_tsf_to_dataframe(tsf_path)
             max_size = np.max([df['series_value'][i].size for i in range(df.shape[0])])
         except Exception:
-            # skip unreadable files
             continue
 
         records.append({"name": name, "max_size": max_size})
@@ -34,14 +31,12 @@ def summarize_monash_sizes_by_cluster(folder: str) -> pd.DataFrame:
 
     per_file = pd.DataFrame(records)
 
-    # 3 clusters by tertiles of the average size
     per_file["cluster"] = pd.qcut(
         per_file["max_size"],
         q=3,
         labels=["small", "medium", "large"]
     )
 
-    # Sort by average size ascending (smallest first)
     per_file = per_file.sort_values("max_size", ascending=True, ignore_index=True)
     return per_file
 
@@ -50,20 +45,17 @@ def summarize_tsbad_sizes_by_cluster(folder: str) -> pd.DataFrame:
     records = []
 
     for csv_path in folder.glob("*.csv"):
-        name = csv_path.stem  # filename without extension
+        name = csv_path.stem
         parts = name.split("_")
         if len(parts) < 5:
-            # skip files that don't follow the expected naming scheme
             continue
 
         domain = parts[1]
         source = parts[4]
 
-        # Count rows (number of time steps). Simple & robust:
         try:
             n_rows = pd.read_csv(csv_path).shape[0]
         except Exception:
-            # skip unreadable files
             continue
 
         records.append({"domain": domain, "source": source, "size": n_rows})
@@ -73,7 +65,6 @@ def summarize_tsbad_sizes_by_cluster(folder: str) -> pd.DataFrame:
 
     per_file = pd.DataFrame(records)
 
-    # Average size per (domain, source)
     agg = (
         per_file
         .groupby(["domain", "source"], as_index=False)["size"]
@@ -81,36 +72,18 @@ def summarize_tsbad_sizes_by_cluster(folder: str) -> pd.DataFrame:
         .rename(columns={"size": "avg_size"})
     )
 
-    # 3 clusters by tertiles of the average size
     agg["cluster"] = pd.qcut(
         agg["avg_size"],
         q=3,
         labels=["small", "medium", "large"]
     )
 
-    # Sort by average size ascending (smallest first)
     agg = agg.sort_values("avg_size", ascending=True, ignore_index=True)
     return agg
 
 def summarize_ucr_sizes_by_cluster(folder) -> pd.DataFrame:
-    """
-    Build a dataframe with the train size of every dataset in the UCR archive,
-    add 3 size clusters (small/medium/large via tertiles), and sort by size.
-
-    Parameters
-    ----------
-    ucr_loader : object with:
-        - attribute `ucr_path` pointing to .../UCRArchive_2018
-        - method   `load_train(dataset_name)` -> pd.DataFrame or (X, y)-like
-          where number of rows equals the number of train instances.
-
-    Returns
-    -------
-    pd.DataFrame with columns: ['dataset', 'train_size', 'cluster'],
-    sorted by train_size ascending.
-    """
+    """Return UCR datasets with their train size and a small/medium/large tertile cluster."""
     from aeon.datasets import load_from_tsv_file
-    # ucr_loader = UCRLoader(folder)
     root = Path(folder)
     datasets = [p.name for p in root.iterdir() if p.is_dir()]
     records = []
@@ -118,16 +91,13 @@ def summarize_ucr_sizes_by_cluster(folder) -> pd.DataFrame:
         try:
             train_file = os.path.join(root, ds, f"{ds}_TRAIN.tsv")
             train = load_from_tsv_file(train_file)
-            # Accept either a DataFrame or tuple-like (X, y)
             if hasattr(train, "shape"):
                 n_rows = train.shape[0]*train[0].shape[0]
             else:
-                # e.g., (X, y) where X is array-like
                 X = train[0]
                 n_rows = np.prod(X.shape)
             records.append({"dataset": ds, "train_size": int(n_rows)})
         except Exception:
-            # skip datasets we fail to load
             continue
 
     if not records:
@@ -135,10 +105,8 @@ def summarize_ucr_sizes_by_cluster(folder) -> pd.DataFrame:
 
     df = pd.DataFrame(records)
 
-    # 3 clusters (tertiles) based on train_size
     df["cluster"] = pd.qcut(df["train_size"], q=3, labels=["small", "medium", "large"])
 
-    # Sort by size
     df = df.sort_values("train_size", ascending=True, ignore_index=True)
     return df
 
@@ -149,13 +117,6 @@ def _read_csv_timeseries(
     dropna: bool = True,
     float_dtype: type = np.float64,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Reads a CSV time series with a label column.
-
-    Returns:
-        X: np.ndarray of shape (T, D) (or (T,) if single feature)
-        y: np.ndarray of shape (T,) with int labels
-    """
     if not os.path.exists(path):
         raise FileNotFoundError(f"CSV not found: {path}")
 
@@ -176,20 +137,11 @@ def _read_csv_timeseries(
             raise ValueError(f"feature_cols {missing} missing in {path}")
         X = df[list(feature_cols)].to_numpy(dtype=float_dtype)
 
-    # Squeeze to 1D if univariate
     if X.ndim == 2 and X.shape[1] == 1:
         X = X[:, 0]
 
     return X, y
 
-# Converts the contents in a .tsf file into a dataframe and returns
-# it along with other meta-data of the dataset:
-# frequency, horizon, whether the dataset contains missing values and whether the series have equal lengths
-#
-# Parameters
-# full_file_path_and_name - complete .tsf file path
-# replace_missing_vals_with - a term to indicate the missing values in series in the returning dataframe
-# value_column_name - Any name that is preferred to have as the name of the column containing series values in the returning dataframe
 def convert_tsf_to_dataframe(
     full_file_path_and_name,
     replace_missing_vals_with="NaN",
@@ -209,21 +161,20 @@ def convert_tsf_to_dataframe(
 
     with open(full_file_path_and_name, "r", encoding="cp1252") as file:
         for line in file:
-            # Strip white space from start/end of line
             line = line.strip()
 
             if line:
-                if line.startswith("@"):  # Read meta-data
+                if line.startswith("@"):
                     if not line.startswith("@data"):
                         line_content = line.split(" ")
                         if line.startswith("@attribute"):
-                            if len(line_content) != 3:  # Attributes have both name and type
+                            if len(line_content) != 3:
                                 raise ValueError("Invalid meta-data specification.")
 
                             col_names.append(line_content[1])
                             col_types.append(line_content[2])
                         else:
-                            if len(line_content) != 2:  # Other meta-data have only values
+                            if len(line_content) != 2:
                                 raise ValueError("Invalid meta-data specification.")
 
                             if line.startswith("@frequency"):
@@ -293,7 +244,7 @@ def convert_tsf_to_dataframe(
                             else:
                                 raise ValueError(
                                     "Invalid attribute type."
-                                )  # Currently, the code supports only numeric, string and date types. Extend this as required.
+                                )
 
                             if att_val is None:
                                 raise ValueError("Invalid attribute value.")
@@ -376,37 +327,15 @@ regression_datasets = ["AustraliaRainfall",
                        "PPGDalia"]
 
 
-# The following code is adapted from the python package sktime to read .ts file.
 class TsFileParseException(Exception):
-    """
-    Should be raised when parsing a .ts file and the format is incorrect.
-    """
+    """Should be raised when parsing a .ts file and the format is incorrect."""
     pass
 
 
 def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and_y=True,
                                   replace_missing_vals_with='NaN'):
-    """Loads data from a .ts file into a Pandas DataFrame.
+    """Loads data from a .ts file into a Pandas DataFrame."""
 
-    Parameters
-    ----------
-    full_file_path_and_name: str
-        The full pathname of the .ts file to read.
-    return_separate_X_and_y: bool
-        true if X and Y values should be returned as separate Data Frames (X) and a numpy array (y), false otherwise.
-        This is only relevant for data that
-    replace_missing_vals_with: str
-       The value that missing values in the text file should be replaced with prior to parsing.
-
-    Returns
-    -------
-    DataFrame, ndarray
-        If return_separate_X_and_y then a tuple containing a DataFrame and a numpy array containing the relevant time-series and corresponding class values.
-    DataFrame
-        If not return_separate_X_and_y then a single DataFrame containing all time-series and (if relevant) a column "class_vals" the associated class values.
-    """
-
-    # Initialize flags and variables used when parsing the file
     metadata_started = False
     data_started = False
 
@@ -426,22 +355,13 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
     class_val_list = []
     line_num = 0
 
-    # Parse the file
-    # print(full_file_path_and_name)
     with open(full_file_path_and_name, 'r', encoding='utf-8') as file:
         for line in tqdm(file):
-            # print(".", end='')
-            # Strip white space from start/end of line and change to lowercase for use below
             line = line.strip().lower()
-            # Empty lines are valid at any point in a file
             if line:
-                # Check if this line contains metadata
-                # Please note that even though metadata is stored in this function it is not currently published externally
                 if line.startswith("@problemname"):
-                    # Check that the data has not started
                     if data_started:
                         raise TsFileParseException("metadata must come before data")
-                    # Check that the associated value is valid
                     tokens = line.split(' ')
                     token_len = len(tokens)
 
@@ -452,11 +372,9 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                     has_problem_name_tag = True
                     metadata_started = True
                 elif line.startswith("@timestamps"):
-                    # Check that the data has not started
                     if data_started:
                         raise TsFileParseException("metadata must come before data")
 
-                    # Check that the associated value is valid
                     tokens = line.split(' ')
                     token_len = len(tokens)
 
@@ -471,11 +389,9 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                     has_timestamps_tag = True
                     metadata_started = True
                 elif line.startswith("@univariate"):
-                    # Check that the data has not started
                     if data_started:
                         raise TsFileParseException("metadata must come before data")
 
-                    # Check that the associated value is valid
                     tokens = line.split(' ')
                     token_len = len(tokens)
                     if token_len != 2:
@@ -490,11 +406,9 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                     has_univariate_tag = True
                     metadata_started = True
                 elif line.startswith("@classlabel"):
-                    # Check that the data has not started
                     if data_started:
                         raise TsFileParseException("metadata must come before data")
 
-                    # Check that the associated value is valid
                     tokens = line.split(' ')
                     token_len = len(tokens)
 
@@ -508,7 +422,6 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                     else:
                         raise TsFileParseException("invalid classLabel value")
 
-                    # Check if we have any associated class values
                     if token_len == 2 and class_labels:
                         raise TsFileParseException("if the classlabel tag is true then class values must be supplied")
 
@@ -516,11 +429,9 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                     class_label_list = [token.strip() for token in tokens[2:]]
                     metadata_started = True
                 elif line.startswith("@targetlabel"):
-                    # Check that the data has not started
                     if data_started:
                         raise TsFileParseException("metadata must come before data")
 
-                    # Check that the associated value is valid
                     tokens = line.split(' ')
                     token_len = len(tokens)
 
@@ -537,7 +448,6 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                     has_target_labels_tag = True
                     class_val_list = []
                     metadata_started = True
-                # Check if this line contains the start of data
                 elif line.startswith("@data"):
                     if line != "@data":
                         raise TsFileParseException("data tag should not have an associated value")
@@ -547,20 +457,15 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                     else:
                         has_data_tag = True
                         data_started = True
-                # If the 'data tag has been found then metadata has been parsed and data can be loaded
                 elif data_started:
-                    # Check that a full set of metadata has been provided
                     incomplete_regression_meta_data = not has_problem_name_tag or not has_timestamps_tag or not has_univariate_tag or not has_target_labels_tag or not has_data_tag
                     incomplete_classification_meta_data = not has_problem_name_tag or not has_timestamps_tag or not has_univariate_tag or not has_class_labels_tag or not has_data_tag
                     if incomplete_regression_meta_data and incomplete_classification_meta_data:
                         raise TsFileParseException("a full set of metadata has not been provided before the data")
 
-                    # Replace any missing values with the value specified
                     line = line.replace("?", replace_missing_vals_with)
 
-                    # Check if we dealing with data that has timestamps
                     if timestamps:
-                        # We're dealing with timestamps so cannot just split line on ':' as timestamps may contain one
                         has_another_value = False
                         has_another_dimension = False
 
@@ -572,15 +477,11 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                         char_num = 0
 
                         while char_num < line_len:
-                            # Move through any spaces
                             while char_num < line_len and str.isspace(line[char_num]):
                                 char_num += 1
 
-                            # See if there is any more data to read in or if we should validate that read thus far
 
                             if char_num < line_len:
-
-                                # See if we have an empty dimension (i.e. no values)
                                 if line[char_num] == ":":
                                     if len(instance_list) < (this_line_num_dimensions + 1):
                                         instance_list.append([])
@@ -596,14 +497,9 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
 
                                     char_num += 1
                                 else:
-                                    # Check if we have reached a class label
                                     if line[char_num] != "(" and target_labels:
                                         class_val = line[char_num:].strip()
 
-                                        # if class_val not in class_val_list:
-                                        #     raise TsFileParseException(
-                                        #         "the class value '" + class_val + "' on line " + str(
-                                        #             line_num + 1) + " is not valid")
 
                                         class_val_list.append(float(class_val))
                                         char_num = line_len
@@ -615,9 +511,6 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                                         values_for_dimension = []
 
                                     else:
-
-                                        # Read in the data contained within the next tuple
-
                                         if line[char_num] != "(" and not target_labels:
                                             raise TsFileParseException(
                                                 "dimension " + str(this_line_num_dimensions + 1) + " on line " + str(
@@ -635,14 +528,12 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                                                 "dimension " + str(this_line_num_dimensions + 1) + " on line " + str(
                                                     line_num + 1) + " does not end with a ')'")
 
-                                        # Read in any spaces immediately after the current tuple
 
                                         char_num += 1
 
                                         while char_num < line_len and str.isspace(line[char_num]):
                                             char_num += 1
 
-                                        # Check if there is another value or dimension to process after this tuple
 
                                         if char_num >= line_len:
                                             has_another_value = False
@@ -658,7 +549,6 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
 
                                         char_num += 1
 
-                                        # Get the numeric value for the tuple by reading from the end of the tuple data backwards to the last comma
 
                                         last_comma_index = tuple_data.rfind(',')
 
@@ -676,7 +566,6 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                                                 "dimension " + str(this_line_num_dimensions + 1) + " on line " + str(
                                                     line_num + 1) + " contains a tuple that does not have a valid numeric value")
 
-                                        # Check the type of timestamp that we have
 
                                         timestamp = tuple_data[0: last_comma_index]
 
@@ -702,7 +591,6 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                                             except ValueError:
                                                 timestamp_is_timestamp = False
 
-                                        # Make sure that the timestamps in the file (not just this dimension or case) are consistent
 
                                         if not timestamp_is_timestamp and not timestamp_is_int and not timestamp_is_float:
                                             raise TsFileParseException(
@@ -724,12 +612,10 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                                                 "dimension " + str(this_line_num_dimensions + 1) + " on line " + str(
                                                     line_num + 1) + " contains tuples where the timestamp format is inconsistent")
 
-                                        # Store the values
 
                                         timestamps_for_dimension += [timestamp]
                                         values_for_dimension += [value]
 
-                                        #  If this was our first tuple then we store the type of timestamp we had
 
                                         if previous_timestamp_was_timestamp is None and timestamp_is_timestamp:
                                             previous_timestamp_was_timestamp = True
@@ -746,7 +632,6 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                                             previous_timestamp_was_int = False
                                             previous_timestamp_was_float = True
 
-                                        # See if we should add the data for this dimension
 
                                         if not has_another_value:
                                             if len(instance_list) < (this_line_num_dimensions + 1):
@@ -780,7 +665,6 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                                 this_line_num_dimensions += 1
                                 num_dimensions = this_line_num_dimensions
 
-                            # If this is the 1st line of data we have seen then note the dimensions
 
                             if not has_another_value and not has_another_dimension:
                                 if num_dimensions is None:
@@ -790,7 +674,6 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                                     raise TsFileParseException("line " + str(
                                         line_num + 1) + " does not have the same number of dimensions as the previous line of data")
 
-                        # Check that we are not expecting some more data, and if not, store that processed above
 
                         if has_another_value:
                             raise TsFileParseException(
@@ -810,19 +693,16 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                             this_line_num_dimensions += 1
                             num_dimensions = this_line_num_dimensions
 
-                        # If this is the 1st line of data we have seen then note the dimensions
 
                         if not has_another_value and num_dimensions != this_line_num_dimensions:
                             raise TsFileParseException("line " + str(
                                 line_num + 1) + " does not have the same number of dimensions as the previous line of data")
 
-                        # Check if we should have class values, and if so that they are contained in those listed in the metadata
 
                         if target_labels and len(class_val_list) == 0:
                             raise TsFileParseException("the cases have no associated class values")
                     else:
                         dimensions = line.split(":")
-                        # If first row then note the number of dimensions (that must be the same for all cases)
                         if is_first_case:
                             num_dimensions = len(dimensions)
 
@@ -833,18 +713,15 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
                                 instance_list.append([])
                             is_first_case = False
 
-                        # See how many dimensions that the case whose data in represented in this line has
                         this_line_num_dimensions = len(dimensions)
 
                         if target_labels:
                             this_line_num_dimensions -= 1
 
-                        # All dimensions should be included for all series, even if they are empty
                         if this_line_num_dimensions != num_dimensions:
                             raise TsFileParseException("inconsistent number of dimensions. Expecting " + str(
                                 num_dimensions) + " but have read " + str(this_line_num_dimensions))
 
-                        # Process the data for each dimension
                         for dim in range(0, num_dimensions):
                             dimension = dimensions[dim].strip()
 
@@ -860,9 +737,7 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
 
             line_num += 1
 
-    # Check that the file was not empty
     if line_num:
-        # Check that the file contained both metadata and data
         complete_regression_meta_data = has_problem_name_tag and has_timestamps_tag and has_univariate_tag and has_target_labels_tag and has_data_tag
         complete_classification_meta_data = has_problem_name_tag and has_timestamps_tag and has_univariate_tag and has_class_labels_tag and has_data_tag
 
@@ -873,13 +748,11 @@ def load_from_tsfile_to_dataframe(full_file_path_and_name, return_separate_X_and
         elif metadata_started and data_started and len(instance_list) == 0:
             raise TsFileParseException("file contained metadata but no data")
 
-        # Create a DataFrame from the data parsed above
         data = pd.DataFrame(dtype=np.float32)
 
         for dim in range(0, num_dimensions):
             data['dim_' + str(dim)] = instance_list[dim]
 
-        # Check if we should return any associated class labels separately
 
         if target_labels:
             if return_separate_X_and_y:

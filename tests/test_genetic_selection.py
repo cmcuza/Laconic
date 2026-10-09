@@ -46,7 +46,6 @@ def test_tournament_samples_unique_contestants_and_honors_exclusion() -> None:
 
 
 def test_parent_tournaments_return_distinct_candidates() -> None:
-    """A crossover's second parent is drawn excluding the first."""
     optimizer = _optimizer()
 
     for seed in range(50):

@@ -1,17 +1,4 @@
-"""Optimizer-agnostic structured run logger.
-
-This is a lightweight counterpart to the logging plumbing baked into
-``BOMABOptimizer``/``SuccessiveHalvingOptimizer``/``RandomOptimizer``. Those
-loggers assume the TerseTS three-part arm structure
-``(logical, coefficient, indices)`` and two named error parameters, which does
-not apply to single-parameter baselines (``sz``, ``mixpiece``, ``serfxor``)
-driven by generic optimizers such as :class:`optimizer.bosmp.BOSimple`.
-
-:class:`RunLogger` reproduces the same on-disk layout (``metadata.json``,
-``events.jsonl``, ``evaluations.jsonl`` / ``evaluations.csv``, ``summary.json``)
-over an *arbitrary* float search space, so downstream log-parsing tooling keeps
-working without any optimizer-specific assumptions.
-"""
+"""Optimizer-agnostic structured run logger."""
 
 from __future__ import annotations
 
@@ -59,13 +46,7 @@ def _csv_safe(value: Any) -> Any:
 
 
 class RunLogger:
-    """Generic JSONL+CSV+metadata logger for an arbitrary float search space.
-
-    Every method is a no-op when ``log_dir`` is empty (the explicit opt-out for
-    programmatic use, e.g. scripts/verify_optimizer_budgets.py). A write failure
-    is never swallowed: a trace that silently stops mid-run is worse than a
-    failed run, so I/O errors propagate and abort the experiment.
-    """
+    """Generic JSONL+CSV+metadata logger for an arbitrary float search space."""
 
     def __init__(
         self,
@@ -85,26 +66,8 @@ class RunLogger:
         self.disabled = True
         self.run_id = None
         self.run_dir = None
-        # Wall time this logger has spent writing, accumulated across every
-        # public call. The execution-time study (docs/EXECUTION_TIME_STUDY_PLAN.md
-        # §6.2's T_log) needs the trace-logging tax measured PER CELL and in the
-        # SAME pass as the search it is part of - otherwise the only way to get
-        # it is a second, `quiet` run of the whole matrix, which doubles the
-        # compute for a component that is two perf_counter calls away. Stays 0.0
-        # when log_dir is None, since every method below returns immediately.
         self.total_logging_sec = 0.0
         self._param_names = list(param_names)
-        # Generic evaluation schema: bookkeeping columns + any optimizer-specific
-        # per-evaluation columns + one column per parameter (raw and model space).
-        #
-        # `extra_eval_fields` exists because the scalarized `reward` is lossy:
-        # `alpha * m + (1 - alpha) * (1 - 1/CR)` cannot be inverted back to
-        # (m, CR), so a trace that logs only `reward` cannot be re-analysed on
-        # the two objectives separately - recovering m requires recompressing
-        # every logged pipeline. An optimizer that already computes both (any of
-        # the ones taking PreferenceObjective's (task_metric, avg_cr) contract)
-        # can declare them here and log them for free. Optimizers that do not
-        # pass it keep their existing schema byte for byte.
         self._eval_fields = [
             "run_id",
             "evaluation",
@@ -126,9 +89,6 @@ class RunLogger:
         if log_dir is None or str(log_dir).strip() == "":
             return
 
-        # File logging was requested, so the full run identity is required -
-        # "unknown_dataset"-style placeholder path segments would silently
-        # detach a trace from the run it belongs to.
         if not isinstance(run_metadata, dict):
             raise ValueError("run_metadata is required when log_dir is set.")
         metadata = _json_safe(run_metadata)
@@ -142,22 +102,6 @@ class RunLogger:
         run_id = f"{dataset_name}_{model_name}_{compressor_name}_{alpha_name}_{fold_name}_rs{optimizer_meta['random_state']}_{timestamp_for_id}"
 
         subdir = log_subdir or "_opt"
-        # Model AND compressor are both part of the path (not just
-        # metadata.json) so two models sharing (dataset, optimizer, budget,
-        # fold) - e.g. classification's proximity_forest + tsfresh - or two
-        # single-parameter baselines (sz/mixpiece/serfxor) tuned by the same
-        # optimizer, can never clobber each other's logs. alpha is also a
-        # path segment (like budget) so re-running at a different task-vs-
-        # compression tradeoff lands in a sibling directory instead of
-        # overwriting the previous trace.
-        # TRANSITIONAL (2026-09-06): the path has never carried the seed, so two
-        # runs differing only by random_state overwrite each other's trace. Opting
-        # in adds an rs<N> segment; it is opt-in rather than unconditional because
-        # run_suite.py spawns one process per cell, so flipping this while a sweep
-        # is in flight would split that sweep's traces across two layouts and every
-        # reader globs one shape (scripts/rank_aggregation_selection.py::_trace_dir)
-        # - the missing half comes back as "no traces", not an error. Retire it by
-        # migrating the existing rs32 traces into rs32/ and making this the default.
         seed_segment = ()
         if metadata.get("seeded_trace_dirs"):
             seed_segment = (f"rs{_sanitize_for_path(optimizer_meta['random_state'])}",)
@@ -210,7 +154,6 @@ class RunLogger:
         if verbose > 0:
             print(f"[{optimizer_name}] logging optimization trace to {run_dir}")
 
-    # -- low level writers -------------------------------------------------
 
     def _write_json(self, path_key: str, payload: Dict[str, Any]) -> None:
         if self.disabled:
@@ -229,7 +172,6 @@ class RunLogger:
             f.write(json.dumps(_json_safe(payload), sort_keys=True) + "\n")
         self.total_logging_sec += time.perf_counter() - start
 
-    # -- public API --------------------------------------------------------
 
     def log_event(self, payload: Dict[str, Any]) -> None:
         if self.disabled:
@@ -276,7 +218,7 @@ class RunLogger:
         for name in self._param_names:
             row[name] = params_raw.get(name)
             row[f"{name}_model_space"] = params_model.get(name)
-        self._append_jsonl("evaluations_jsonl", row)   # accumulates its own time
+        self._append_jsonl("evaluations_jsonl", row)
         start = time.perf_counter()
         file_exists = os.path.exists(self._paths["evaluations_csv"])
         with open(self._paths["evaluations_csv"], "a", encoding="utf-8", newline="") as f:

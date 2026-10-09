@@ -1,29 +1,5 @@
-// batch_pyserf - a batched pybind11 binding for SerfXOR.
-//
-// WHY THIS EXISTS
-// ---------------
-// The shipped `pyserf` binding exposes only `add_value(double)`, so compressing
-// a series from Python costs one pybind11 call per value - measured at ~307 ns,
-// about 31 ms per 100K values. That is binding overhead, not codec time
-// (`SerfXORCompressor` itself does 100K values in well under a millisecond), and
-// in a throughput comparison against SZ3/MixPiece/TerseTS - all of which take a
-// whole buffer in one call - it would be reported as if SerfXOR were slow.
-//
-// This module hands the whole array across once and runs the identical per-block
-// loop in C++. Same compressor, same window, same block boundaries, same
-// `Close()` per block, so the bytes are identical; only the per-value Python
-// round trip is gone. `tests`/the benchmark assert that byte equality rather
-// than assuming it.
-//
-// It also fixes an aliasing trap by construction. Upstream `get()` is bound with
-// `py::return_value_policy::reference`, handing back a reference to the
-// compressor's own buffer: a pack held across further encoder use is no longer
-// the pack that was produced, and both `to_bytes()` and `decompress()` hang on
-// the stale handle. Here every block is copied into an owned `py::bytes` before
-// the compressor is touched again, so packs can be collected safely.
-//
-// SCOPE: throughput measurement only. Nothing in the experiment pipeline imports
-// it - `compression/lib/serfxor.py` still drives every result in `results/`.
+// batch_pyserf: batched pybind11 binding for SerfXOR (one call per series,
+// byte-identical to the per-value binding).
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
@@ -41,9 +17,6 @@ namespace py = pybind11;
 
 namespace {
 
-// The block loop of compression/lib/serfxor.py, verbatim: ONE compressor for the
-// whole series, Close() at every block boundary, the block's bytes taken before
-// the next value is added.
 std::vector<std::string> compress_blocks(const double *data, ssize_t n, int window_size,
                                          double max_diff, long adjust, int block_size) {
   std::vector<std::string> packs;
@@ -62,7 +35,7 @@ std::vector<std::string> compress_blocks(const double *data, ssize_t n, int wind
   return packs;
 }
 
-}  // namespace
+}
 
 PYBIND11_MODULE(batch_pyserf, m) {
   m.doc() = "Batched SerfXOR binding - throughput measurement only, not used by any experiment";
@@ -76,14 +49,12 @@ PYBIND11_MODULE(batch_pyserf, m) {
         const ssize_t n = info.size;
         std::vector<std::string> packs;
         {
-          // No Python object is touched inside, so the GIL can go - which also
-          // means a caller can time this without interpreter interference.
           py::gil_scoped_release release;
           packs = compress_blocks(data, n, window_size, max_diff, adjust, block_size);
         }
         py::list out;
         for (const std::string &pack : packs) out.append(py::bytes(pack));
-        return out;   // owned copies: safe to hold, unlike upstream get()
+        return out;
       },
       py::arg("values"), py::arg("window_size"), py::arg("max_diff"), py::arg("adjust"),
       py::arg("block_size") = 1000,

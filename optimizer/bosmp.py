@@ -40,11 +40,6 @@ def _require_botorch():
 
 
 def _resolve_torch_device(torch, requested_device: str, who: str = "bosmp"):
-    """Resolve the execution device for BoTorch tensors and models.
-
-    ``who`` only names the caller in messages; optimizer/adaedge.py imports this
-    rather than keeping a fourth copy of it.
-    """
     normalized = str(requested_device).lower()
     if normalized == "auto":
         normalized = "cuda" if torch.cuda.is_available() else "cpu"
@@ -99,23 +94,12 @@ class BOSimple:
         self.log_dir = log_dir
         self.log_subdir = str(log_subdir)
         self.log_process = bool(log_process)
-        # Per-dimension distance, relative to that dimension's model-space
-        # range, below which a proposal counts as already-evaluated.
         self.duplicate_tol = float(duplicate_tol)
         self.rng = np.random.default_rng(self.random_state)
 
     def _is_duplicate(
         self, point_model: Dict[str, float], train_X: List[List[float]], vars_def: List[_Var]
     ) -> bool:
-        """Has this candidate (numerically) already been evaluated?
-
-        The objective is deterministic, so re-evaluating a known point buys
-        exactly zero information while costing a full compress -> decompress ->
-        predict cycle. This matters most for the single-parameter baselines
-        (sz/mixpiece/serfxor): in 1-D, LogEI's maximizer collapses onto the
-        incumbent once BO converges, so without this guard most of an
-        80-iteration budget is spent re-measuring the same one or two points.
-        """
         if not train_X:
             return False
         candidate = np.array([point_model[v.name] for v in vars_def], dtype=float)
@@ -124,7 +108,6 @@ class BOSimple:
         return bool((relative.max(axis=1) <= self.duplicate_tol).any())
 
     def _space_meta(self, space_definition: Dict[str, Any], key: str) -> Dict[str, Any]:
-        """Per-param {'type','scale'} metadata; required for every parameter."""
         if key not in space_definition:
             raise ValueError(f"Parameter '{key}' is missing from the space definition.")
         return parse_space_metadata(space_definition[key], key)
@@ -204,10 +187,6 @@ class BOSimple:
         device = _resolve_torch_device(torch, self.device)
         dtype = torch.double
 
-        # self.total_budget is the number this run reports as n_evaluations and
-        # writes into its budget_<N> path, so the loop must spend exactly it -
-        # recomputing a second, differently-clamped budget here is how those two
-        # drift apart.
         total_budget = self.total_budget
         n_warm = self.init_points
 
@@ -231,13 +210,10 @@ class BOSimple:
             total_budget=total_budget,
             log_subdir=self.log_subdir,
             verbose=self.verbose,
-            # See docs/EXECUTION_TIME_STUDY_PLAN.md §5.4: objective_elapsed_sec
-            # already measures this optimizer's own perf_counter pair exactly,
-            # so only the CPU column is new here.
             extra_eval_fields=["objective_cpu_sec"],
         )
         self.last_run_dir = logger.run_dir
-        self.last_logger = logger   # see optimizer/genetic.py::last_logger
+        self.last_logger = logger
 
         train_X: List[List[float]] = []
         train_y: List[float] = []
@@ -312,11 +288,6 @@ class BOSimple:
             try:
                 X_t = torch.tensor(np.asarray(train_X), dtype=dtype, device=device)
                 y_t = torch.tensor(np.asarray(train_y).reshape(-1, 1), dtype=dtype, device=device)
-                # Normalize inputs to the unit cube, like bomab/adaptive_halving
-                # do: SingleTaskGP's default lengthscale prior assumes [0,1]^d,
-                # and the baselines' raw error bounds (e.g. sz_error in
-                # [0.01, 0.3]) are nowhere near it, which mis-scales the prior
-                # and leaves the fitted GP ill-conditioned.
                 model = SingleTaskGP(
                     X_t,
                     y_t,
@@ -348,10 +319,6 @@ class BOSimple:
                     point_model = self._sample_model_point(self.rng, vars_def)
                     proposal_source = "random_duplicate_proposal"
             except (NameError, AttributeError, ImportError) as exc:
-                # A numerically-failed GP fit is a legitimate reason to fall
-                # back to random sampling; a broken symbol is a bug in this
-                # file, and silently degrading every proposal to random hides
-                # it completely (it did exactly that once already).
                 raise RuntimeError(f"bosmp proposal step is broken, not merely failing: {exc!r}") from exc
             except Exception as exc:
                 gp_fallbacks += 1
@@ -372,7 +339,7 @@ class BOSimple:
         if gp_fallbacks:
             print(f"[bosmp] {gp_fallbacks}/{self.n_iter} GP proposals fell back to random sampling.")
 
-        assert best_x is not None  # a failed evaluation raises out of _evaluate
+        assert best_x is not None
         logger.write_summary(
             evaluations=evaluations,
             total_budget=total_budget,

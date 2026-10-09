@@ -38,7 +38,6 @@ class MetricSpec:
 def __ss_errors(y_true, y_pred): return np.sum((y_true - y_pred) ** 2)
 def __ss_tot(y_true): return np.sum((y_true - np.nanmean(y_true)) ** 2)
 
-# ---- Metric implementations ----
 def _accuracy(y_true, y_pred, **_): return float(skm.accuracy_score(y_true, y_pred))
 def _balanced_accuracy(y_true, y_pred, **_): return float(skm.balanced_accuracy_score(y_true, y_pred))
 def _f1_macro(y_true, y_pred, **_): return float(skm.f1_score(y_true, y_pred, average="macro"))
@@ -47,7 +46,7 @@ def _precision_macro(y_true, y_pred, **_): return float(skm.precision_score(y_tr
 def _recall_macro(y_true, y_pred, **_): return float(skm.recall_score(y_true, y_pred, average="macro", zero_division=0))
 def _cohen_kappa(y_true, y_pred, **_): return float(skm.cohen_kappa_score(y_true, y_pred))
 def _mcc(y_true, y_pred, **_): return float(skm.matthews_corrcoef(y_true, y_pred))
-def _ari(y_true, y_pred, **_): return (float(skm.adjusted_rand_score(y_true, y_pred)) + 1.0)/2.0 # Adjust ARI to avoid negative numbers.
+def _ari(y_true, y_pred, **_): return (float(skm.adjusted_rand_score(y_true, y_pred)) + 1.0)/2.0
 def _nmi(y_true, y_pred, **_): return float(skm.normalized_mutual_info_score(y_true, y_pred))
 def _ami(y_true, y_pred, **_): return float(skm.adjusted_mutual_info_score(y_true, y_pred))
 def _homogeneity(y_true, y_pred, **_): return float(skm.homogeneity_score(y_true, y_pred))
@@ -63,8 +62,6 @@ def _imaape(y_true, y_pred): return 1 - _maape(y_true, y_pred)
 
 
 def _purity(y_true, y_pred, **_): 
-    # Purity = (1/N) * sum over predicted clusters of the max true-count in that cluster
-    # contingency_matrix shape: (n_true_classes, n_pred_clusters)
     C = skm.cluster.contingency_matrix(y_true, y_pred, sparse=False)
     return float(np.sum(np.max(C, axis=0)) / np.sum(C))
 
@@ -82,7 +79,6 @@ def _pr_auc_macro(y_true, y_score=None, classes=None, **_):
     if _is_binary(y_true):
         s = _binary_pos_scores(y_true, y_score, classes)
         return float(skm.average_precision_score(y_true, s))
-    # multiclass
     if classes is None:
         classes = np.unique(y_true)
     Y = label_binarize(y_true, classes=classes)
@@ -109,10 +105,6 @@ _REGISTRY: Dict[str, MetricSpec] = {
     "f1":                   MetricSpec(_treshold_f1,        needs_score=True, value_range=(0.0, 1.0)),
     "roc_auc":              MetricSpec(_roc_auc_macro,      needs_score=True,  value_range=(0.0, 1.0)),
     "pr_auc":               MetricSpec(_pr_auc_macro,       needs_score=True,  value_range=(0.0, 1.0)),
-    # _ari() already folds ARI's [-1, 1] onto [0, 1] (see its definition), so the
-    # declared range must be [0, 1] too - declaring (-1, 1) made normalized()
-    # shift a second time and the clustering task term only ever spanned [0.5, 1],
-    # silently halving alpha's weight against the CR term.
     "ari":                  MetricSpec(_ari,                needs_score=False, value_range=(0.0, 1.0)),
     "nmi":                  MetricSpec(_nmi,                needs_score=False, value_range=(0.0, 1.0)),
     "ami":                  MetricSpec(_ami,                needs_score=False, value_range=(0.0, 1.0)),
@@ -128,7 +120,6 @@ _REGISTRY: Dict[str, MetricSpec] = {
     "mae":                  MetricSpec(_mae,                needs_score=False, value_range=(0.0, np.inf)),
     "r2":                   MetricSpec(_r2,                needs_score=False, value_range=(-np.inf, 1)),
 }
-
 
 
 def get_metric(name: str) -> MetricSpec:
@@ -202,7 +193,6 @@ def select_threshold_by(y_true, y_score, mode="f1"):
     """Pick a threshold on validation scores."""
     if y_score is None or len(y_score)==0: return None
     if mode == "f1":
-        # evaluate at unique score cutoffs
         uniq = np.unique(y_score)
         best_t, best = None, -1.0
         for t in uniq:
@@ -210,21 +200,18 @@ def select_threshold_by(y_true, y_score, mode="f1"):
             if f1 > best: best, best_t = f1, t
         return float(best_t)
     if mode == "youden":
-        # maximize tpr - fpr
         fpr, tpr, thr = skm.roc_curve(y_true, y_score)
         j = tpr - fpr
         return float(thr[int(np.argmax(j))])
     raise ValueError(f"Unknown threshold selection mode: {mode}")
 
 
-# simple metric helpers (task-specific)
 def classification_metrics(y_true, y_pred) -> dict:
     return {"accuracy": float(skm.accuracy_score(y_true, y_pred)), 
             "f1_macro": skm.f1_score(y_true, y_pred, average="macro")}
 
 
 def anomaly_metrics(y_true, scores) -> dict:
-    # normalize scores for stability
     s = np.asarray(scores, dtype=float)
     if s.size and (s.max() - s.min()) > 0:
         s = (s - s.min()) / (s.max() - s.min())
@@ -233,13 +220,8 @@ def anomaly_metrics(y_true, scores) -> dict:
 
 
 def combine_fitness(avg_acc: float, avg_cr: float, alpha: float) -> float:
-    """
-    Scalarization: alpha * task_score + (1 - alpha) * (1 - 1/avg_cr)
-    """
+    """Scalarization: alpha * task_score + (1 - alpha) * (1 - 1/avg_cr)."""
     avg_acc, avg_cr = float(avg_acc), float(avg_cr)
     if not np.isfinite(avg_acc) or not np.isfinite(avg_cr) or avg_cr <= 0.0:
-        # Fail at the source: a NaN metric or nonsense CR would otherwise flow
-        # through every optimizer silently (NaN never beats the incumbent) and
-        # burn the whole budget without surfacing the underlying failure.
         raise ValueError(f"Non-finite fitness inputs: task_metric={avg_acc}, avg_cr={avg_cr}")
     return alpha * avg_acc + (1.0 - alpha) * (1.0 - 1.0 / avg_cr)

@@ -1,30 +1,27 @@
-name: tersets_reduced
+name: laconic
 methods:
-  - SlideFilter
-  - SwingFilter
-  - VW
   - PoorMansCompressionMean
+  - SwingFilter
+  - SlideFilter
+  - VW
   - MixPiece
   - DFT
-  - SerfQT
-  - SerfXOR
+  - BitPackedQuantization
+  - BitPackedBUFF
   - MacaqueS
   - MacaqueV
-  - BitPackedBUFF
-  - BitPackedQuantization
-  - DeltaFORPFOREncoding
+  - DeltaEncoding
   - DeltatoDeltaPFOREncoding
   - DeltaEliasGammaEncoding
-  - DeltaEncoding
 bounds:
   logical_method_index: [0, 5]
-  coefficient_method_index: [6, 11]
-  indices_method_index: [12, 15]
+  coefficient_method_index: [6, 9]
+  indices_method_index: [10, 12]
   logical_method_error: [0.001, 0.15]
-  coefficient_method_error: [1e-05, 0.01]
+  coefficient_method_error: [1.0e-7, 1.0e-2]
 space:
   logical_method_index: {type: int, scale: linear}
   coefficient_method_index: {type: int, scale: linear}
   indices_method_index: {type: int, scale: linear}
-  logical_method_error: {type: float, scale: log, significant_digits: 2}
+  logical_method_error: {type: float, scale: linear, significant_digits: 2}
   coefficient_method_error: {type: float, scale: log, significant_digits: 2}

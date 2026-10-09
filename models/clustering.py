@@ -17,7 +17,7 @@ class KMedoids(Clustering):
     def fit(self, X: np.ndarray) -> None:
         self.model.fit(X)
     def predict(self, X: np.ndarray) -> np.ndarray:
-        return self.model.predict(X) + 1 # Necessary because UCR labels start at 1.
+        return self.model.predict(X) + 1
     
 
 class KShape(Clustering):
@@ -29,9 +29,6 @@ class KShape(Clustering):
         kwargs['tol'] = float(kwargs['tol'])
         self.model = AeonKShape(**kwargs)
     def fit(self, X: np.ndarray) -> None:
-        # Keep the Numba-backed distance calculations and BLAS kernels
-        # single-threaded during fitting for reproducible results, then restore
-        # the process's previous Numba thread count.
         previous_numba_threads = get_num_threads()
         set_num_threads(1)
         try:
@@ -40,7 +37,7 @@ class KShape(Clustering):
         finally:
             set_num_threads(previous_numba_threads)
     def predict(self, X: np.ndarray) -> np.ndarray:
-        return self.model.predict(X) + 1 # Necessary because UCR labels start at 1.
+        return self.model.predict(X) + 1
     
 
 class FeatureCluster(Clustering):
@@ -53,7 +50,7 @@ class FeatureCluster(Clustering):
     def fit(self, X: np.ndarray) -> None:
         self.model.fit(X)
     def predict(self, X: np.ndarray) -> np.ndarray:
-        return self.model.predict(X) + 1 # Necessary because UCR labels start at 1.
+        return self.model.predict(X) + 1
     
 
 def build_model(name: str, kwargs: Dict[str, Any]):

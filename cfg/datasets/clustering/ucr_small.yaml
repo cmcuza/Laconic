@@ -1,7 +1,7 @@
 loader:
   name: UCRLoader
-  kwargs: {root: data/classification/UCRArchive_2018}        # root, cache_dir, etc., if needed
-  
+  kwargs: {root: data/classification/UCRArchive_2018}
+
 split:
   type: StratifiedShuffleSplit
   n_splits: 5
@@ -13,4 +13,3 @@ datasets:
     - Coffee
     - Lightning2
     - ECG200
-

@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "laconic-clean"
+name = "laconic"
 version = "0.1.0"
-description = "Laconic, scoped down to the compression backends/optimizers currently under active study (see CLAUDE.md)"
+description = "Joint optimization of lossy time-series compression and downstream analytics"
 authors = []
 package-mode = false
 

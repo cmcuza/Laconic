@@ -60,7 +60,7 @@ def test_suite_alpha_is_forwarded_to_experiment_cli() -> None:
         "random_states": [32],
         "alpha": 0.4,
         "tasks": [{"analytics": "classification", "dataset": "ucr_small"}],
-        "compressors": [{"compression": "tersets_mab", "optimizers": ["random"]}],
+        "compressors": [{"compression": "laconic", "optimizers": ["random"]}],
     }
 
     combo = next(iter_combos(manifest))
@@ -75,7 +75,7 @@ def test_suite_requires_budget_for_genetic_percentages() -> None:
         "alpha": 0.4,
         "tasks": [{"analytics": "classification", "dataset": "ucr_small"}],
         "compressors": [
-            {"compression": "tersets_mab", "optimizers": ["genetic"]}
+            {"compression": "laconic", "optimizers": ["genetic"]}
         ],
     }
 

@@ -1,13 +1,3 @@
-# The clustering comparison pool: ucr_small's five datasets plus Wafer and
-# CricketX from ucr_medium. Seven is the pool the trade-off/Pareto figures are
-# meant to average over - going 5 -> 7 measurably tightened the dataset-to-dataset
-# spread every method is scored on (CR geometric SD fell for four of five
-# methods, degradation SD for four of five).
-#
-# Adiac is deliberately NOT here: 37 classes against a 78-series validation
-# split is ~2 series per class, and clustering_runner.py sizes the deployment
-# model from y_train but each fold's search model from y_val, so it is the one
-# dataset where those two k's can disagree.
 loader:
   name: UCRLoader
   kwargs: {root: data/classification/UCRArchive_2018}

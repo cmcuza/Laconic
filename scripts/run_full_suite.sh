@@ -1,21 +1,6 @@
 #!/usr/bin/env bash
-# Single-call entry point for a full Laconic-clean comparison suite - the
-# equivalent of the old Laconic/scripts/{laconic.sh, run_random_suite.sh,
-# run_genetic_suite.sh, rerun_clustering_suite.sh} shell scripts, which each
-# hand-listed (and hand-commented in/out) one analytics/model/dataset
-# combination per optimizer.
-#
-# All the actual logic - thread-capping env vars, the task x compressor x
-# optimizer x model sweep, and regenerating results/figures/*.pdf + MLflow
-# artifacts once the sweep finishes - lives in run_suite.py, driven by a
-# cfg/suites/<name>.yaml manifest. This script is just a thin, repo-root-
-# relative wrapper so there's still a single `./scripts/...` command to run,
-# without duplicating that logic in two places.
-#
-# Usage:
-#   ./scripts/run_full_suite.sh                              # cfg/suites/main_comparison.yaml
-#   ./scripts/run_full_suite.sh --dry-run                     # preview the commands first
-#   ./scripts/run_full_suite.sh cfg/suites/other_manifest.yaml [run_suite.py flags...]
+# Run a suite manifest (default: cfg/suites/main_comparison.yaml) via run_suite.py.
+# Usage: ./scripts/run_full_suite.sh [manifest.yaml] [run_suite.py flags...]
 
 set -euo pipefail
 

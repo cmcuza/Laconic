@@ -1,17 +1,10 @@
 name: adaedge
-# Order defines method_index: 0 -> mixpiece, 1 -> serfxor, 2 -> sz.
-# AdaEdgeBackend requires method_index bounds to span exactly this list, so
-# adding a method here without widening method_index below is a config error
-# rather than a silently unreachable arm.
 methods:
   - mixpiece
   - serfxor
   - sz
 bounds:
   method_index: [0, 2]
-  # Same range the three baselines use on their own (cfg/compression/{sz,
-  # mixpiece,serfxor}.yaml), which is what makes one shared error bound a fair
-  # comparison rather than a re-tuning.
   adaedge_error: [0.001, 0.3]
 space:
   method_index: { type: int, scale: linear }

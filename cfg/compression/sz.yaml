@@ -1,6 +1,6 @@
 name: sz
-methods: 
-  - SZ  
+methods:
+  - SZ
 bounds:
   sz_error: [0.001, 0.3]
 space:

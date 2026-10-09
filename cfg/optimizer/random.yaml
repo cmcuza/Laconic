@@ -1,5 +1,0 @@
-name: random
-kwargs:
-  n_iter: 100
-  verbose: 1
-  alpha: 0.75

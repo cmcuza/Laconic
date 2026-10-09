@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple, Dict, Iterator, Iterable
@@ -9,12 +8,6 @@ from pathlib import Path
 from .utils import convert_tsf_to_dataframe, load_from_tsfile_to_dataframe
 from aeon.datasets import load_from_tsv_file
 
-
-# ----------------------------- Loaders -------------------------------
-# Trimmed to the loaders backing the four active tasks (classification,
-# clustering, regression, forecasting). The anomaly task's TSBADLoader is
-# parked, not deleted - see project CLAUDE.md; port it back the same way
-# (re-add the class + its "tsbad" branch in build_loaders below).
 
 @dataclass
 class UCRLoader:
@@ -39,20 +32,11 @@ class MonashLoader:
         files = list(root.rglob("*.tsf"))
         if not files:
             raise FileNotFoundError(f"No .tsf files found under {root}")
-        # maps dataset key (prefix before underscore) to full path
         self.data_map: Dict[str, Path] = {f.name.split("_")[0]: f for f in files}
-        # ...plus the full stem (minus a trailing "_dataset") as an alias, purely
-        # additive: the short prefix-before-underscore key above can't express a
-        # multi-word name containing its own underscore ("hentropy_weather" would
-        # truncate to "hentropy" under that rule), and existing single-word keys
-        # already equal their own full-stem alias, so nothing already resolvable
-        # changes what it resolves to.
         for f in files:
             alias = f.name.removesuffix(".tsf").removesuffix("_dataset")
             self.data_map.setdefault(alias, f)
-        # internal state
         self.values: np.ndarray | None = None
-        # metadata
         self.frc_h: int | None = None
         self.freq: str | None = None
         self.has_missing: bool | None = None
@@ -69,7 +53,6 @@ class MonashLoader:
         raise ValueError(f"Unsupported series_value cell type: {type(v)}")
 
     def pick_larges_ts(self, df: pd.DataFrame) -> Tuple[pd.Timestamp, np.ndarray]:
-        # schema guard
         required = {"series_name", "start_timestamp", "series_value"}
         miss = required - set(df.columns)
         if miss:
@@ -78,13 +61,8 @@ class MonashLoader:
             else:
                 raise ValueError(f"Missing required columns: {miss}")
 
-        # deterministically pick the longest; tie-break by series_name, start_timestamp, row index
         lengths = df["series_value"].apply(lambda x: len(self._to_array(x))).astype(int)
         max_len = int(lengths.max())
-        # if max_len == 65981: 
-        #     print(f"[MonashLoader] WARNING: Dataset contains series of length 65981. This is the weather dataset and the max time series is 93%+ repeat of the same value.")
-        #     max_len = 48027 # This is equivalent to the length of the series that maximizes the function: 0.85*H(series) + 0.25Len(series), where H(series) is the entropy of the series and Len(series) is the length of the series. 
-        #     # This is a heuristic to avoid memory issues with very long time series but with the same value repeated many times. This should only trigger in the weather dataset where most values are the same and the series is very long. 
 
         cand = df.loc[lengths == max_len, ["series_name", "start_timestamp"]].copy()
         cand["__row"] = cand.index
@@ -97,7 +75,6 @@ class MonashLoader:
         return start, values.astype(float, copy=False)
 
     def _simple_impute(self, y: np.ndarray) -> np.ndarray:
-        """Forward-fill then back-fill; if all NaN, fill with zeros."""
         if not np.isnan(y).any():
             return y
         s = pd.Series(y)
@@ -119,7 +96,7 @@ class MonashLoader:
             print(f"[MonashLoader] Dataset {dataset_name} contains NaNs — applying simple ffill/bfill.")
             vals = self._simple_impute(vals)
 
-        self.values = vals  # full series cache
+        self.values = vals
 
     def load_train(self, dataset_name: str) -> np.ndarray:
         self._ensure_loaded(dataset_name)
@@ -135,22 +112,10 @@ class MonashLoader:
         train_fracs: Iterable[float] = (0.30, 0.40, 0.50, 0.60, 0.70),
         val_frac: float = 0.10,
         test_frac: float = 0.20,
-        drop_short: bool = True,           # True: skip partitions that don't meet frc_h constraints
-        copy_arrays: bool = True,         # True: return copies instead of views
+        drop_short: bool = True,
+        copy_arrays: bool = True,
     ) -> Iterator[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """
-        Yield forward-chain splits:
-        train = [0 : round(t*N)]
-        val   = [round(t*N) : round((t+val)*N)]
-        test  = [round((t+val)*N) : round((t+val+test)*N)]
-        for t in train_fracs.
-
-        If `frc_h` is provided, enforce:
-        len(train) >= 2*frc_h (for direct-H forecaster that needs 2H),
-        len(val)   >= frc_h,
-        len(test)  >= frc_h.
-        """
-        # ensure data is loaded
+        """Yield forward-chaining train/val/test splits, one per train fraction."""
         if self.values is None:
             if dataset_name is None:
                 raise RuntimeError("Call forward_chain with dataset_name or load a dataset first.")
@@ -166,8 +131,6 @@ class MonashLoader:
         if max(train_fracs) + val_frac + test_frac > 1.0000001:
             raise ValueError("Train/val/test fractions exceed 1.0; adjust inputs.")
 
-        # precompute fixed block lengths (rounded). We use round on cumulative
-        # boundaries for stability and clamp to [0, N].
         val_len  = int(round(val_frac  * N))
         test_len = int(round(test_frac * N))
 
@@ -176,16 +139,13 @@ class MonashLoader:
             val_end  = min(N, tr_end + val_len)
             test_end = min(N, val_end + test_len)
 
-            # empty / invalid partition guard
             if tr_end <= 0 or val_end <= tr_end or test_end <= val_end:
-                # if rounding made something degenerate, skip it
                 continue
 
             tr = y[:tr_end]
             va = y[tr_end:val_end]
             te = y[val_end:test_end]
 
-            # optional: enforce frc_h-based minimums
             if self.frc_h is not None:
                 ok = (len(tr) >= 2 * self.frc_h) and (len(va) >= self.frc_h) and (len(te) >= self.frc_h)
                 if drop_short and not ok:

@@ -1,6 +1,6 @@
 loader:
   name: UCRLoader
-  kwargs: {root: data/classification/UCRArchive_2018}        # root, cache_dir, etc., if needed
+  kwargs: {root: data/classification/UCRArchive_2018}
 
 split:
   type: StratifiedShuffleSplit

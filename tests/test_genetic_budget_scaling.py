@@ -60,12 +60,6 @@ def test_genetic_percentage_resolution_does_not_mutate_configuration() -> None:
 
 @pytest.mark.parametrize("budget", [100, 200, 500])
 def test_ladder_budgets_leave_room_for_tournament_children(budget: int) -> None:
-    """Each generation breeds one refinement per elite out of the offspring share.
-
-    On the ladder that leaves the bulk of every generation to crossover and
-    mutation; a config where 2 * elitism swallowed the whole offspring batch
-    would be pure local search.
-    """
     resolved_kwargs, _ = resolve_genetic_percentages_for_budget(
         PERCENTAGE_KWARGS, budget
     )

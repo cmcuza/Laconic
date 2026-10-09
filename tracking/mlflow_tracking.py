@@ -1,33 +1,4 @@
-"""MLflow-backed experiment tracking for Laconic.
-
-Every call to `experiments/<task>_runner.py::run(cfg)` opens one MLflow run
-(one per invocation, as before), but it now nests inside a small, persistent
-hierarchy instead of sitting alone in a per-task experiment:
-
-    experiment "laconic-main"
-    +-- run "task=<task>"                      (created once, reused forever)
-        +-- run "model=<model_name>"           (created once, reused forever)
-            +-- run "<dataset>_rs<random_state>"   (one per invocation, as before)
-
-The task- and model-level runs are *container* runs: get_or_create_container_run
-finds them by tag if they already exist (created by some earlier, separate
-`run_experiments.py` process) or creates them fresh. Because two runs created
-in separate Python processes can't use MLflow's native `nested=True` (that
-relies on an in-process "active run" stack), nesting is instead recorded
-explicitly via the `mlflow.parentRunId` tag - the same tag MLflow's own
-`nested=True` sets, so the UI's run tree groups them identically.
-
-This gives every result row the same identity/config columns as before (dataset,
-compressor, optimizer, model, random_state, alpha, n_evaluations, git state),
-plus a place to browse: `analysis/*.py` (rewritten to call log_figure_to_run)
-attaches its rollup figures to the task/model container runs and one shared
-`summary` run (get_or_create_summary_run), so opening the experiment in MLflow
-and drilling into task -> model -> dataset shows the same figures you'd
-otherwise only find by hand in results/figures/.
-
-Disabled by passing `cfg.mlflow_enabled = False` (wired to `--no_mlflow` in
-run_experiments.py) — every function below then becomes a no-op.
-"""
+"""MLflow-backed experiment tracking for Laconic."""
 from __future__ import annotations
 
 import csv
@@ -46,12 +17,8 @@ from typing import Any, Dict, Optional
 import mlflow
 from mlflow.entities import Metric
 
-# Row/mean-row fields that are numeric but already captured elsewhere
-# (fold -> the MLflow step, random_state -> a run param) — logging them again
-# as metrics would just be noise.
 _NON_METRIC_KEYS = {"fold", "random_state"}
 
-# Single shared experiment every task/model/dataset run nests inside.
 _DEFAULT_EXPERIMENT = "laconic-main"
 _DEFAULT_TRACKING_URI = "sqlite:///mlflow.db"
 _OVERVIEW_RUN_NAME = "00-results-overview"
@@ -73,7 +40,7 @@ def init_tracking(enabled: bool = True, experiment_name: str = _DEFAULT_EXPERIME
 
 
 def get_git_info() -> tuple[str, bool]:
-    """(commit_hash, is_dirty). Uncommitted changes can't be pinned by a hash alone."""
+    """(commit_hash, is_dirty)."""
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
     status = subprocess.check_output(["git", "status", "--porcelain"]).decode()
     return commit, bool(status.strip())
@@ -114,9 +81,6 @@ def _find_or_create_run(
     run_name: str,
     parent_run_id: Optional[str] = None,
 ) -> str:
-    """Finds a run in `experiment_id` whose tags match `tags` exactly, else
-    creates one (nested under `parent_run_id` via the `mlflow.parentRunId` tag
-    - see module docstring for why that's used instead of `nested=True`)."""
     filter_string = " and ".join(
         f"tags.`{k}` = '{_escape_tag_value(v)}'" for k, v in tags.items()
     )
@@ -140,13 +104,7 @@ def _find_or_create_run(
 def get_or_create_container_run(
     task: str, model: Optional[str] = None, experiment_name: str = _DEFAULT_EXPERIMENT
 ) -> str:
-    """Returns the run_id of the task-level container run (model=None) or the
-    model-level one nested under it (model given). These persist across
-    separate `run_experiments.py` invocations - unlike the per-invocation leaf
-    run from start_experiment_run - so rollup figures/metrics logged to them
-    (by the analysis scripts, usually from a later, separate process) accumulate
-    in one place instead of each invocation getting its own disconnected copy.
-    """
+    """Return the run_id of the task container run, or the model run under it."""
     experiment_id = _resolve_experiment_id(experiment_name)
 
     task_run_id = _find_or_create_run(
@@ -164,10 +122,7 @@ def get_or_create_container_run(
 
 
 def get_or_create_summary_run(experiment_name: str = _DEFAULT_EXPERIMENT) -> str:
-    """The one run at the top of the experiment meant to hold whole-sweep
-    rollup figures (e.g. the combined cross-task trade-off panel) - the
-    "observe the most important figures per experiment directly in MLflow"
-    entry point."""
+    """Return the top-level summary run."""
     experiment_id = _resolve_experiment_id(experiment_name)
     run_id = _find_or_create_run(
         experiment_id,
@@ -175,9 +130,6 @@ def get_or_create_summary_run(experiment_name: str = _DEFAULT_EXPERIMENT) -> str
         run_name=_OVERVIEW_RUN_NAME,
     )
     client = mlflow.MlflowClient()
-    # Existing stores used the less prominent name "summary". Updating
-    # the standard run-name tag is idempotent and preserves the run ID
-    # and every artifact already attached to it.
     client.set_tag(run_id, "mlflow.runName", _OVERVIEW_RUN_NAME)
     client.set_tag(
         run_id,
@@ -189,11 +141,7 @@ def get_or_create_summary_run(experiment_name: str = _DEFAULT_EXPERIMENT) -> str
     return run_id
 
 
-
-
 def _optional_float(value: Any) -> Optional[float]:
-    """Parse one evaluations.csv cell; empty/non-finite cells are valid data
-    (RunLogger serializes non-finite rewards as empty), not errors."""
     try:
         parsed = float(value)
     except (TypeError, ValueError):
@@ -206,15 +154,9 @@ def log_optimizer_learning_curve(
     fold: int,
     optimizer_run_dir: Optional[str],
 ) -> bool:
-    """Publish one fold's structured optimizer history as native MLflow data.
-
-    Optimizers already write a common evaluations.csv schema. This keeps
-    those files as the source of truth while making reward and incumbent
-    curves directly chartable in the MLflow UI. It also attaches the raw CSV,
-    metadata, and summary to the exact dataset-level run for deeper debugging.
-    """
+    """Publish one fold's structured optimizer history as native MLflow data."""
     if run_id is None or not optimizer_run_dir:
-        return False  # --no_mlflow, or the optimizer ran with logging opted out
+        return False
 
     run_dir = Path(optimizer_run_dir)
     evaluations_path = run_dir / "evaluations.csv"
@@ -259,8 +201,6 @@ def log_optimizer_learning_curve(
                     Metric(metric_names["elapsed"], elapsed, timestamp_ms, step)
                 )
 
-    # Tracking servers cap batch sizes; 750 metrics leaves room below the
-    # common 1,000-entity request limit while keeping backfills efficient.
     for start in range(0, len(metric_batch), 750):
         client.log_batch(run_id, metrics=metric_batch[start:start + 750])
 
@@ -276,7 +216,6 @@ def sync_optimizer_learning_curves(log_root: str = ".logs") -> Dict[str, int]:
     """Backfill native MLflow curves/artifacts from every structured log on disk."""
     stats = {"metadata_files": 0, "synced": 0, "skipped": 0}
     for metadata_path in Path(log_root).rglob("metadata.json"):
-        # Model-cache metadata has no optimizer history and no mlflow_run_id.
         if not (metadata_path.parent / "evaluations.csv").exists():
             continue
         stats["metadata_files"] += 1
@@ -285,7 +224,6 @@ def sync_optimizer_learning_curves(log_root: str = ".logs") -> Dict[str, int]:
         run_id = run_metadata.get("mlflow_run_id")
         fold = run_metadata.get("fold")
         if run_id is None or fold is None:
-            # Traces from --no_mlflow runs carry no run id; nothing to sync to.
             stats["skipped"] += 1
             continue
         if log_optimizer_learning_curve(run_id, int(fold), str(metadata_path.parent)):
@@ -296,13 +234,9 @@ def sync_optimizer_learning_curves(log_root: str = ".logs") -> Dict[str, int]:
 
 
 def log_figure_to_run(run_id: Optional[str], local_path: str, artifact_path: Optional[str] = None) -> None:
-    """Attaches a file already written to disk (a figure, a CSV, ...) as an
-    MLflow artifact on `run_id`. Safe to call from any process at any time -
-    reopens the run via `run_id=` rather than assuming it's the active run,
-    since container runs are typically populated later, by the analysis
-    scripts running as a separate process from whichever run created them."""
+    """Attaches a file already written to disk (a figure, a CSV, ...) as an MLflow artifact on `run_id`."""
     if run_id is None:
-        return  # --no_mlflow
+        return
     if not os.path.exists(local_path):
         raise FileNotFoundError(f"Cannot log missing file to MLflow: {local_path}")
     with mlflow.start_run(run_id=run_id):
@@ -312,9 +246,7 @@ def log_figure_to_run(run_id: Optional[str], local_path: str, artifact_path: Opt
 def start_experiment_run(
     cfg, splitter_name: str, primary_metric: str, n_evaluations: int | None = None
 ) -> RunContext:
-    """Starts one MLflow run for one runner invocation, nested under that
-    invocation's task/model container runs (see module docstring); logs
-    identity/config params exactly as before."""
+    """Start the leaf MLflow run for one invocation, nested under its task/model runs."""
     if not cfg.mlflow_enabled:
         return RunContext(run_id=None, git_commit=None)
 
@@ -361,9 +293,7 @@ def start_experiment_run(
 
 
 def tag_run_metadata(run_metadata: Dict[str, Any], run_ctx: RunContext) -> Dict[str, Any]:
-    """Adds the MLflow run id to the dict already threaded into optimizer logs
-    (random.py/bomab.py/run_logger.py all serialize whatever run_metadata they're
-    handed into .logs/.../metadata.json), linking that trace back to this run."""
+    """Add the MLflow run id to the optimizer run metadata."""
     if run_ctx.run_id is None:
         return run_metadata
     return {**run_metadata, "mlflow_run_id": run_ctx.run_id}
@@ -378,7 +308,7 @@ def _row_metrics(row: Dict[str, Any], prefix: str = "") -> Dict[str, float]:
             fval = float(value)
         except (TypeError, ValueError):
             continue
-        if fval != fval:  # NaN
+        if fval != fval:
             continue
         name = _sanitize_metric_name(key)
         if prefix and not name.startswith(prefix):
@@ -415,8 +345,7 @@ def log_summary_row(mean_row: Dict[str, Any]) -> None:
 
 
 def log_new_rows_artifact(df) -> None:
-    """Snapshots exactly the rows this invocation produced (folds + mean row),
-    before they're concatenated with any pre-existing results/*.csv history."""
+    """Log the rows this invocation produced."""
     if mlflow.active_run() is None:
         return
     with tempfile.TemporaryDirectory() as tmp:
@@ -427,7 +356,5 @@ def log_new_rows_artifact(df) -> None:
 
 def end_run() -> None:
     if mlflow.active_run() is not None:
-        # Called from each runner's finally block, where the active exception
-        # remains visible through sys.exc_info().
         status = "FAILED" if sys.exc_info()[0] is not None else "FINISHED"
         mlflow.end_run(status=status)

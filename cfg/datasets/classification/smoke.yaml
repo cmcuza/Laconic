@@ -7,9 +7,5 @@ split:
   n_splits: 5
   test_size: 0.2
 
-# Single tiny dataset for fast end-to-end sanity checks (`--dataset smoke`),
-# e.g. `python run_experiments.py --analytics classification --compression
-# tersets_mab --optimizer random --dataset smoke`. Not part of the real
-# ucr_small comparison group.
 datasets:
     - Coffee

@@ -4,12 +4,9 @@ project(batch_pyserf CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release)      # -O2; a debug build would measure the wrong thing
+  set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# The Serf checkout this links against. It is NOT vendored here: only the small
-# wrapper below is ours, and pinning a whole third-party tree into this repo to
-# build one optional measurement module is not worth it.
 set(SERF_ROOT "" CACHE PATH "Path to a built Serf checkout (must contain build/src/libserf.a)")
 if(NOT EXISTS "${SERF_ROOT}/build/src/libserf.a")
   message(FATAL_ERROR "SERF_ROOT=${SERF_ROOT} has no build/src/libserf.a - build Serf first")

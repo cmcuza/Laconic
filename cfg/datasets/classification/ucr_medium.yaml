@@ -1,15 +1,15 @@
 loader:
   name: UCRLoader
-  kwargs: {root: data/classification/UCRArchive_2018}        # root, cache_dir, etc., if needed
-  
+  kwargs: {root: data/classification/UCRArchive_2018}
+
 split:
   type: StratifiedShuffleSplit
   n_splits: 5
   test_size: 0.2
 
-datasets:  
+datasets:
     - Wafer
-    - Adiac 
-    - CricketX  
-    - ACSF1 
+    - Adiac
+    - CricketX
+    - ACSF1
     - Computers

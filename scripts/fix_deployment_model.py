@@ -1,42 +1,4 @@
-"""Rewrite classification/clustering results so every fold's TEST columns come
-from ONE model per (dataset, random_state, model), fit on all the training data.
-
-The bug this repairs
---------------------
-Those runners fit a model per CV fold and then scored the fixed test split with
-*that fold's* model. Since `best_val` selects a different fold per method, two
-methods on the same dataset were compared through two different models - the
-test data was identical, the mapping from data to prediction was not. The
-baseline metric moved across folds within one (dataset, random_state) in 50 of
-52 cells, by up to 34% (classification `Wine`) and 49% (clustering `Coffee`) -
-the two datasets that carry nearly every anomaly flag their tasks produce.
-
-`experiments/deployment_model.py` is the fix at source; this script applies the
-same rule to results produced before it, so they need no re-run. The two agree
-by construction: both fit on all of `X_train` with the same cache key.
-
-What it touches, and the check that proves it
----------------------------------------------
-Only the test-side METRIC columns - `baseline_<m>`, `test_<m>`, `acc_delta`,
-`acc_impact_%`. Everything else is left byte-identical: every `val_*` column,
-`best_params`, `optimization_time`, every identity column, and - the useful part -
-**both compression-ratio columns**.
-
-`test_avg_cr` and `baseline_cr` MUST NOT MOVE. The test data is unchanged and
-`best_params` is unchanged, so recompressing the test split has to reproduce the
-stored ratio exactly. That gives a self-check the forecasting repair could not
-have (there the window itself changed): recompute the CR, compare it to what is
-stored, and refuse to write the file if they disagree - a mismatch means the
-split or the parameter dict was rebuilt wrong, and the metrics would be wrong
-in a way no amount of eyeballing would catch.
-
-After the rewrite, `baseline_<m>` is constant across folds within each
-(dataset, random_state, model). That is the post-condition worth grepping for.
-
-    python scripts/fix_deployment_model.py --dry-run
-    python scripts/fix_deployment_model.py --tasks classification
-    python scripts/fix_deployment_model.py --datasets Coffee,Wine
-"""
+"""Deployment-model helpers shared with rank_aggregation_selection.py."""
 from __future__ import annotations
 
 import argparse
@@ -49,12 +11,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-# 8, not 1. The 1 that used to be here is the right cap for code running INSIDE
-# a parallel optimizer's worker (see optimizer/genetic.py), but this script is a
-# standalone batch job: capping it starves models that ask for parallelism -
-# cfg/analytics/classification/proximity_forest.yaml requests n_jobs: 10 - and
-# ProximityForest's predict over a large test set is the dominant cost here.
-# setdefault, so an explicit env var from the caller still wins.
 for _var in ("NUMBA_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
              "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
     os.environ.setdefault(_var, "8")
@@ -73,25 +29,10 @@ from experiments.deployment_model import fit_deployment_model
 from optimizer.utils import bounds_list_to_tuple
 
 TASKS = ("classification", "clustering")
-# Relative tolerance on the reproduced compression ratio. 5%, not the 0.2% that
-# would be exact-to-rounding (the CSV stores test_avg_cr to 4 dp and SZ3/MixPiece
-# round their own per-series CR to 2 before averaging). MixPiece does not reproduce
-# its own logged compression ratio: the drift is small, one-directional
-# (recomputed > stored) and already documented and accepted in
-# nrmse_vs_degradation.py::build, measured there at +1.6%..+3.7% and here at
-# +0.2%..+3.3%; adaedge inherits it whenever it selects MixPiece as its arm.
-# Rejecting those would leave the files unrepaired for a reason unrelated to
-# this script. The check still does its job - it exists to catch a test split or
-# a parameter dict rebuilt WRONG, which is off by far more than a few percent
-# (the stale successive_halving results it does reject drift +6% and +10.6%).
-# Accepted drift is never silent: anything above NOTABLE_DRIFT is reported.
 CR_TOLERANCE = 5e-2
 NOTABLE_DRIFT = 2e-3
 
 
-# ----------------------------------------------------------------------
-# config lookup
-# ----------------------------------------------------------------------
 def _dataset_group(task: str, dataset: str) -> Dict[str, Any]:
     for path in sorted((Path("cfg/datasets") / task).glob("*.yaml")):
         cfg = yaml.safe_load(path.read_text())
@@ -114,20 +55,11 @@ def _backend_for(compressor: str):
                          {"methods": cfg.get("methods"), "space_definition": cfg["space"]})
 
 
-# ----------------------------------------------------------------------
-# the deployment model, cached across every file that needs it
-# ----------------------------------------------------------------------
 class Deployment:
-    """Per (task, dataset, model, random_state): the fixed test split, the
-    model fit on all training data, and the baseline metrics it produces."""
+    """Test split, deployment model and baseline metrics for one cell."""
 
     def __init__(self, logs_root: str) -> None:
         self._cache: Dict[Tuple[str, str, str, int], Any] = {}
-        # A ROOT, joined with the task below. run_experiments.py passes the
-        # runner `os.path.join(args.logs, args.analytics)`, so the model cache
-        # lives at .logs/<task>/_model_cache/... - writing to .logs/_model_cache
-        # instead puts it in a tree the runners never read, and every model gets
-        # refitted on both sides forever.
         self._logs_root = logs_root
         self.n_fits = 0
         self.planned: set = set()
@@ -151,9 +83,6 @@ class Deployment:
         X_train, y_train = loader.load_train(dataset)
         X_test, y_test = loader.load_test(dataset)
 
-        # Verbatim, as classification_runner/clustering_runner do - only the
-        # regression runner injects shuffle/random_state. The name is part of
-        # the model-cache key, so it has to match the runner exactly.
         splitter_name = type(build_splitter(group["split"])).__name__
 
         kwargs = dict(acfg["model"].get("kwargs") or {})
@@ -197,9 +126,6 @@ def _score(entry, X_rec) -> Dict[str, float]:
                             classes=entry["classes"], analytics=entry["task"])
 
 
-# ----------------------------------------------------------------------
-# one results file
-# ----------------------------------------------------------------------
 def rewrite_row(row: pd.Series, entry, backend, primary: str) -> Tuple[Dict[str, Any], float]:
     """Updates for one fold row, plus the recomputed CR for the self-check."""
     params = json.loads(row["best_params"])
@@ -228,11 +154,6 @@ def process(path: Path, task: str, deployment: Deployment, args) -> Tuple[int, b
     if folds.empty:
         return 0, True
     if args.skip_done:
-        # Exact, not a heuristic: the repair sets baseline_<m> to the deployment
-        # model's own value, so a file whose stored baseline already equals it
-        # has been done. Cheap - the model is cached after the first lookup, and
-        # nothing is compressed to decide. (Constancy across folds alone would
-        # not do: an easy dataset can have identical per-fold baselines by luck.)
         first = folds.iloc[0]
         entry = deployment.get(task, first["dataset"], first["model"], first["random_state"])
         done = True
@@ -248,10 +169,6 @@ def process(path: Path, task: str, deployment: Deployment, args) -> Tuple[int, b
             return 0, True
 
     if args.dry_run:
-        # Cheap on purpose: report scope without fitting or compressing anything.
-        # A dry run that did the real work would double the cost of the whole
-        # operation for no safety gain - the real run is already per-file atomic
-        # (nothing is written unless every row's CR reproduces) and backs up first.
         for _, row in folds.iterrows():
             deployment.note(task, row["dataset"], row["model"], row["random_state"])
         return len(folds), True
@@ -266,7 +183,6 @@ def process(path: Path, task: str, deployment: Deployment, args) -> Tuple[int, b
         entry = deployment.get(task, row["dataset"], row["model"], row["random_state"])
         updates, cr = rewrite_row(row, entry, backend, primary)
         stored = float(row["test_avg_cr"])
-        # The test data and best_params are unchanged, so the ratio must be too.
         drift = abs(cr - stored) / max(abs(stored), 1e-12)
         max_drift = max(max_drift, drift)
         if drift > CR_TOLERANCE:
@@ -293,8 +209,6 @@ def process(path: Path, task: str, deployment: Deployment, args) -> Tuple[int, b
             if column in frame.columns:
                 frame.loc[idx, column] = value
 
-    # fold 0 is the mean across folds, recomputed per random_state for the
-    # columns we touched and nothing else.
     touched = sorted({c for _, u in pending for c in u})
     for rs, group in frame[frame["fold"] >= 1].groupby("random_state"):
         mask = (frame["fold"] == 0) & (frame["random_state"] == rs)
@@ -323,8 +237,7 @@ def main(argv=None) -> int:
     parser.add_argument("--backup-dir", type=Path, default=None)
     parser.add_argument("--no-backup", action="store_true")
     parser.add_argument("--skip-done", action="store_true",
-                        help="skip files already carrying the deployment model's baseline "
-                             "- makes an interrupted run resumable")
+                        help="Skip files that already carry the deployment baseline.")
     parser.add_argument("--force", action="store_true",
                         help="write even when the compression ratio does not reproduce")
     args = parser.parse_args(argv)
@@ -335,7 +248,6 @@ def main(argv=None) -> int:
     files: List[Tuple[Path, str]] = []
     for task in args.tasks:
         for path in sorted((args.results_root / task).rglob("*.csv")):
-            # budget_<N> is a path segment, so filter before opening the file
             if budgets is not None and not any(
                     part.startswith("budget_") and int(part.split("_", 1)[1]) in budgets
                     for part in path.parts):
@@ -354,9 +266,6 @@ def main(argv=None) -> int:
     print(f"rule            : one model per (dataset, random_state, model), fit on all training data")
     if not args.dry_run and not args.no_backup:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Never under results/: measure_test_decompression_error.py and
-        # test_error_vs_accuracy.py glob results/*/*/*/*/budget_100/alpha_0.75/*.csv,
-        # which a copy under results/ would match, doubling every row they read.
         backup = args.backup_dir or Path(f".backups/deployment_model_{stamp}")
         if backup.exists():
             raise SystemExit(f"Backup target {backup} already exists.")
@@ -375,15 +284,13 @@ def main(argv=None) -> int:
         total_rows += rows
         if ok and rows == 0 and args.skip_done:
             already += 1
-            continue                      # already repaired; keep the log quiet
+            continue
         written += 1 if ok else 0
         skipped += 0 if ok else 1
         print(f"[{index:3d}/{len(files)}] {path.relative_to(args.results_root)}  {rows} rows"
               + ("" if ok else "  SKIPPED"), flush=True)
 
     if args.dry_run:
-        # Same helper the cache itself uses, so the preview cannot disagree
-        # with where the real run will look (it lowercases the whole path).
         from models.base import _CachedModelMixin
         from experiments.deployment_model import DEPLOYMENT_FOLD
         def _cached(t, d, m, r) -> bool:

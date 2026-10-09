@@ -1,11 +1,11 @@
 loader:
   name: MonashLoader
-  kwargs: {root: data/forecasting/Monash}        # root, cache_dir, etc., if needed
-  
+  kwargs: {root: data/forecasting/Monash}
+
 split:
   type: DartsSplitter
   n_splits: 5
-  val_prop: 0.2 # optional gap between train/val
+  val_prop: 0.2
   gap: 0
   mode: temporal
 
@@ -14,5 +14,3 @@ datasets:
     # - oikolab
     # - australian
     # - saugeenday
-
-

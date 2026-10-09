@@ -1,5 +1,5 @@
 name: mixpiece
-methods: 
+methods:
   - MixPiece
 bounds:
   mixpiece_error: [0.001, 0.3]

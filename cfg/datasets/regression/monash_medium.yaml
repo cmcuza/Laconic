@@ -1,6 +1,6 @@
 loader:
   name: MonashUCRLoader
-  kwargs: {root: data/regression/Monash-UCR}        # root, cache_dir, etc., if needed
+  kwargs: {root: data/regression/Monash-UCR}
 
 split:
   type: KFold

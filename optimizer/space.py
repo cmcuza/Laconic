@@ -5,14 +5,8 @@ import numpy as np
 import math
 
 
-# Everything a `space:` entry may declare. Anything else is a config error:
-# an unrecognized key that is quietly dropped is indistinguishable from one
-# that took effect, and both `fixed:` (removed) and a mistyped
-# `significant_digits` would silently widen the search rather than fail.
 ALLOWED_SPACE_KEYS = frozenset({"type", "scale", "significant_digits"})
 
-# Removed configuration forms, mapped to what replaced them. Named explicitly
-# so an old config gets a fix rather than a generic "unknown key".
 _REMOVED_SPACE_KEYS = {
     "fixed": (
         "pinning a parameter is now expressed as an equal-bounds range, "
@@ -27,15 +21,7 @@ _REMOVED_SPACE_KEYS = {
 
 
 def parse_bounds_pair(raw_bound: Any, field_name: str) -> Tuple[float, float]:
-    """Parse one ``bounds`` entry into ``(lo, hi)``.
-
-    The only accepted form is a two-element ``[lo, hi]`` sequence. The dict form
-    (``{"default": [lo, hi], "MethodX": [lo, hi]}``) used to be accepted here and
-    by random/bomab/bosmp, but only ``default`` was ever read - every per-method
-    entry was silently discarded, so a config that carefully narrowed the error
-    range for one compressor got the default range and results that looked
-    entirely plausible. It is rejected rather than ignored.
-    """
+    """Parse one ``bounds`` entry into ``(lo, hi)``."""
     if isinstance(raw_bound, (list, tuple)) and len(raw_bound) == 2:
         return float(raw_bound[0]), float(raw_bound[1])
     if isinstance(raw_bound, dict):
@@ -50,12 +36,7 @@ def parse_bounds_pair(raw_bound: Any, field_name: str) -> Tuple[float, float]:
 
 
 def parse_space_metadata(raw_metadata: Any, parameter_name: str) -> Dict[str, Any]:
-    """Validate one ``space`` entry and return it.
-
-    Requires ``type`` and ``scale``, and rejects any key outside
-    :data:`ALLOWED_SPACE_KEYS` - see that constant for why silence is not an
-    option here.
-    """
+    """Validate one ``space`` entry and return it."""
     if not isinstance(raw_metadata, dict):
         raise ValueError(
             f"Space definition for '{parameter_name}' must be a dict with "
@@ -97,8 +78,8 @@ def _reflect(value: float, lower_bound: float, upper_bound: float) -> float:
 class VariableSpec:
     lower_bound: float
     upper_bound: float
-    value_type: str  # "float" | "int"
-    scale: str  # "linear" | "log"
+    value_type: str
+    scale: str
     significant_digits: Optional[int] = None
 
 
@@ -106,18 +87,7 @@ class Space:
     def __init__(
         self, bounds: Dict[str, Tuple[float, float]], space: Dict[str, Dict[str, Any]]
     ):
-        """
-        bounds: {"param": [lo, hi]}
-        space:  per-param dicts: {"param": {"type":"int|float","scale":"linear|log"}}
-                plus an optional "significant_digits" for float parameters
-
-        Every parameter in ``bounds`` must be annotated in ``space`` with an
-        explicit ``type`` and ``scale`` — there are no name-based or
-        range-based defaults, so a missing annotation is a config error, not a
-        silently-linear float. Unknown keys are rejected for the same reason
-        (see :data:`ALLOWED_SPACE_KEYS`), and a parameter is pinned with
-        ``bounds: [value, value]`` rather than a dedicated key.
-        """
+        """Typed search space built from `bounds` and per-parameter `space` metadata."""
         if not isinstance(space, dict):
             raise ValueError(
                 "Space requires a space definition dict annotating every parameter."
@@ -183,7 +153,6 @@ class Space:
     _resolve_bounds = staticmethod(parse_bounds_pair)
     _resolve_metadata = staticmethod(parse_space_metadata)
 
-    # ---------- sampling ----------
     def sample(self, rng: np.random.Generator) -> Dict[str, float]:
         sampled_candidate = {}
         for parameter_name, variable_spec in self.variable_specs.items():
@@ -208,7 +177,6 @@ class Space:
             )
         return sampled_candidate
 
-    # ---------- cast/clip/repair ----------
     @staticmethod
     def _round_to_significant_digits(value: float, significant_digits: int) -> float:
         if value == 0.0:
@@ -217,12 +185,6 @@ class Space:
         return float(round(value, decimal_places))
 
     def _canonicalize_value(self, parameter_name: str, value: float) -> float:
-        """Bound a value and restore its declared representation.
-
-        The declared representation has to be restored *after* bounding, or an
-        integer genome could leak a fractional value into deduplication,
-        logging, and backend conversion.
-        """
         variable_spec = self.variable_specs[parameter_name]
         bounded_value = min(
             max(float(value), variable_spec.lower_bound),
@@ -237,22 +199,12 @@ class Space:
         else:
             return bounded_value
 
-        # Rounding can step back outside the range it was handed: round(0.5) is
-        # 0 under a lower bound of 0.2, and two significant digits take 0.1499
-        # up to 0.15. Only the rounded branches need re-bounding.
         return min(
             max(rounded_value, variable_spec.lower_bound), variable_spec.upper_bound
         )
 
     def clip(self, candidate: Dict[str, float]) -> Dict[str, float]:
-        """Bound and canonicalize a whole candidate.
-
-        ``sample``/``mutate``/``crossover`` already return canonical candidates,
-        so nothing in the current optimizers calls this. It is the repair entry
-        point for an optimizer that proposes raw points some other way (a BO
-        acquisition maximizer, say) and needs them put back on the declared
-        grid before evaluation or deduplication.
-        """
+        """Bound and canonicalize a whole candidate."""
         return {
             parameter_name: self._canonicalize_value(
                 parameter_name, candidate[parameter_name]
@@ -260,7 +212,6 @@ class Space:
             for parameter_name in self.variable_specs
         }
 
-    # ---------- mutation ----------
     def mutate(
         self,
         rng: np.random.Generator,
@@ -269,11 +220,7 @@ class Space:
         sigma_frac: float = 0.1,
         log_sigma: float = 0.75,
     ) -> Dict[str, float]:
-        """
-        Integer linear variables choose uniformly among alternative values.
-        sigma_frac: fraction of (hi-lo) for continuous linear vars (Gaussian nudge)
-        log_sigma: stdev in log-space for log vars
-        """
+        """Mutate a candidate: uniform for int vars, Gaussian for linear floats, log-space for log vars."""
         mutated_candidate = {}
         for parameter_name, variable_spec in self.variable_specs.items():
             current_value = candidate[parameter_name]
@@ -310,21 +257,7 @@ class Space:
         sigma_frac: float = 0.1,
         log_sigma: float = 1.0,
     ) -> Dict[str, float]:
-        """Local refinement: move the continuous genes, freeze the discrete ones.
-
-        For ``tersets_mab`` this re-tunes ``logical_method_error`` and
-        ``coefficient_method_error`` while holding the three method indices, i.e.
-        it keeps the pipeline and searches only its error bounds. The split is by
-        declared ``type`` (``int`` frozen, ``float`` mutated), never by parameter
-        name, so it needs no knowledge of any particular compressor - on a
-        single-parameter baseline it degrades to an ordinary mutation of that one
-        parameter.
-
-        Unlike :meth:`mutate` there is no per-gene probability: every continuous
-        gene moves. A refinement that happened to leave all of them untouched
-        would just be the elite again, spending a duplicate-rejection retry to
-        learn nothing.
-        """
+        """Local refinement: move the continuous genes, freeze the discrete ones."""
         refined_candidate = {}
         for parameter_name, variable_spec in self.variable_specs.items():
             current_value = candidate[parameter_name]
@@ -333,8 +266,6 @@ class Space:
                 continue
 
             if variable_spec.scale == "log":
-                # The log-space mutation is a Gaussian nudge in log-space, but the stdev 
-                # is increased for very small values to avoid getting stuck at the lower bound.
                 effective_log_sigma = log_sigma + 0.25 if current_value >= 1e-4 else log_sigma + 0.5
                 proposed_value = np.exp(np.log(current_value) + rng.normal(0.0, effective_log_sigma))
                 mutated_value = _reflect(proposed_value, variable_spec.lower_bound, variable_spec.upper_bound)
@@ -345,7 +276,6 @@ class Space:
             refined_candidate[parameter_name] = self._canonicalize_value(parameter_name, mutated_value)
         return refined_candidate
 
-    # ---------- crossover ----------
     def crossover(
         self,
         rng: np.random.Generator,

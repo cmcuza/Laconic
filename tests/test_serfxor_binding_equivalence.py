@@ -1,24 +1,4 @@
-"""Byte-identity guard for the batched SerfXOR binding (`docs/EXECUTION_TIME_STUDY_PLAN.md` §4.3).
-
-Phase 0 deleted the per-value block loop from `compression/lib/serfxor.py` and
-replaced it with a call into `compression.lib.batch_pyserf`
-(`compression/lib/batch_serfxor/`). After that change,
-`scripts/benchmark_compression_throughput.py --methods serfxor` validates the
-batched path against `serfxor_compress_series`, which *is* the batched path -
-a tautology, not a cross-binding check. This test is what still exercises the
-real invariant: the batched binding must reproduce the deleted per-value
-binding exactly, on real analytics series, at the error bounds the search
-space actually uses.
-
-The per-value reference lives only in this test (built directly from
-`compression.lib.pyserf.PySerfXORCompressor`/`PySerfXORDecompressor`) - the
-shipping code has no reason to keep a second, slower implementation of the
-same algorithm around once nothing calls it.
-
-If this test fails after `compression/lib/batch_serfxor/build.sh`'s pinned
-Serf commit is moved, the new pin is wrong, not this test - see that script's
-`SERF_COMMIT` comment.
-"""
+"""Batched SerfXOR binding is byte-identical to the per-value one."""
 from __future__ import annotations
 
 import numpy as np
@@ -33,12 +13,6 @@ PROJECT_ROOT_CFG = "cfg/compression/serfxor.yaml"
 
 
 def _per_value_reference(series: np.ndarray, error_bound: float):
-    """The per-value SerfXOR encode/decode `serfxor.py` used to do, verbatim.
-
-    This is `serfxor_compress_series`'s pre-Phase-0 body - kept alive only
-    here, as the thing the batched path is checked against, per this test's
-    module docstring.
-    """
     series = np.asanyarray(series, dtype=np.float64)
     n = series.size
     ts_min, ts_max = float(series.min()), float(series.max())
@@ -76,30 +50,16 @@ def _serfxor_error_range():
 
 
 def _coffee_series() -> np.ndarray:
-    """One real UCR series - classification/clustering's Coffee, length 286."""
     X, _y = UCRLoader().load_train("Coffee")
-    # UCR shape is (n, channels, length); one channel of one series.
     return np.asarray(X)[0, 0, :].astype(np.float64)
 
 
 def _regression_channel() -> np.ndarray:
-    """One real regression channel.
-
-    The plan names Covid3Month (length 84) as the example; it is not present
-    under `data/regression/Monash-UCR` in this checkout (only
-    AppliancesEnergy/FloodModeling1/IEEEPPG/LiveFuelMoistureContent are).
-    FloodModeling1 (length 266) is used instead - still a real regression
-    series from the analytics corpus, not the throughput-benchmark one, which
-    is the property this test needs.
-    """
     X, _y = MonashUCRLoader().load_train("FloodModeling1")
-    # regression shape is (n, length, channels); series 0, channel 0.
     return np.asarray(X)[0, :, 0].astype(np.float64)
 
 
 def _forecasting_window() -> np.ndarray:
-    """One real forecasting window - the val split of saugeenday under forward_chain,
-    the same shape `ForecastingObjective` evaluates (a single series, no eval_indices)."""
     loader = MonashLoader()
     _train, val, _test = next(loader.forward_chain("saugeenday"))
     return np.asarray(val, dtype=np.float64)
@@ -134,13 +94,11 @@ def test_batched_matches_per_value_reference(series_case, error_bounds, error_le
     assert isinstance(batch_rec, list), "return contract: rec must be a Python list"
     assert len(batch_rec) == len(series)
 
-    # Byte-identical compressed size.
     assert batch_cr == ref_cr, (
         f"{name}/{error_level}: compressed-size-derived CR diverged "
         f"(batched={batch_cr}, per-value reference={ref_cr})"
     )
 
-    # Elementwise-identical reconstruction.
     ref_arr = np.asarray(ref_rec, dtype=np.float64)
     batch_arr = np.asarray(batch_rec, dtype=np.float64)
     assert np.array_equal(ref_arr, batch_arr), (
@@ -150,13 +108,6 @@ def test_batched_matches_per_value_reference(series_case, error_bounds, error_le
 
 
 def test_short_series_exercise_single_partial_block():
-    """`coffee_ucr` (286 points) and `flood_regression` (266 points) are both
-    under SERF_BLOCK_SIZE=1000, so each exercises exactly one, partial, block -
-    the path the README calls out as untested by the 100K-value throughput
-    corpus. `saugeenday_forecasting` (2,374 points) instead spans several
-    blocks including a final partial one, covering the multi-block case in the
-    same run. Assert both shapes explicitly so this guard can't silently stop
-    covering either."""
     single_block = {"coffee_ucr", "flood_regression"}
     multi_block = {"saugeenday_forecasting"}
     assert single_block | multi_block == set(SERIES_CASES)
@@ -174,12 +125,9 @@ def test_short_series_exercise_single_partial_block():
 
 
 def test_serf_adjust_digit_is_well_defined_on_real_series():
-    """Sanity check on the shared helper both paths call (imported from
-    `serfxor.py`, not reimplemented here), so a divergence in the digit
-    adjustment isn't mistaken for one in the batched binding itself."""
     for name, factory in SERIES_CASES.items():
         series = factory()
         lo, hi = float(series.min()), float(series.max())
         adjust = serf_adjust_digit(lo, hi)
         assert isinstance(adjust, int), name
-        assert adjust >= 0, name  # serf_adjust_digit clamps to max(0, ...)
+        assert adjust >= 0, name
