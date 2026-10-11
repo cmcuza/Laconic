@@ -1,8 +1,10 @@
+import sys
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 import numpy as np
 from evals.metrics import MetricSpec, combine_fitness
-from compression.utils import compress_and_decompress_batch
+from evals.anomaly_metrics import NonFiniteScores, anomaly_q
+from compression.utils import compress_and_decompress_batch, reconstruct_array
 from profiling import stage_clock
 
 
@@ -134,3 +136,48 @@ class ForecastingObjective:
     def __call__(self, parameters_vector: Dict[str, float]) -> float:
         metric, avg_cr = self._compute_components(parameters_vector)
         return combine_fitness(metric, avg_cr, self.alpha)
+
+
+@dataclass
+class AnomalyObjective:
+    """J(p) = alpha * Q_val(p) + (1 - alpha) * (1 - 1/CR(p)) for one series.
+
+    Every candidate pipeline compresses and reconstructs the series. The detector
+    scores the whole reconstruction, and Q is computed on the validation range
+    [0, val_end) only. If the detector returns non-finite scores for the
+    reconstruction, Q is 0 and the candidate keeps its storage term. Any other
+    error propagates.
+    """
+    x_clean: np.ndarray
+    y: np.ndarray
+    detector: Any
+    backend: Any
+    alpha: float
+    val_end: int
+    q_measure: str = "AUC-PR"
+    sliding_window: Optional[int] = None
+
+    def _compute_components(self, parameters_vector: Dict[str, float]) -> Tuple[float, float]:
+        params = self.backend.params_from_vector(parameters_vector)
+        with stage_clock.stage("compress"):
+            x_rec, avg_cr = reconstruct_array(self.x_clean, self.backend, params)
+
+        try:
+            with stage_clock.stage("inference"):
+                scores = self.detector.score(x_rec)
+        except NonFiniteScores as err:
+            print(f"[anomaly] Q set to 0: {err}", file=sys.stderr)
+            return 0.0, avg_cr
+        with stage_clock.stage("metric"):
+            # Q on the validation range only.
+            q_val = anomaly_q(self.y[:self.val_end], scores[:self.val_end],
+                              self.q_measure, self.sliding_window)
+        if not np.isfinite(q_val):
+            raise ValueError(f"non-finite {self.q_measure}: {q_val}")
+        return q_val, avg_cr
+
+    def __call__(self, parameters_vector: Dict[str, float], eval_indices: Optional[np.ndarray] = None) -> float:
+        if eval_indices is not None:
+            raise NotImplementedError("eval_indices is not supported: the objective scores one series")
+        q_val, avg_cr = self._compute_components(parameters_vector)
+        return combine_fitness(q_val, avg_cr, self.alpha)

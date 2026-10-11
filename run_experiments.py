@@ -82,6 +82,8 @@ def _dispatch_experiment(cfg: ExperimentConfig):
         from experiments.forecasting_runner import run
     elif cfg.task == "regression":
         from experiments.regression_runner import run
+    elif cfg.task == "anomaly":
+        from experiments.anomaly_runner import run
     else:
         raise ValueError(f"No runner for analytics task '{cfg.task}'")
     return run(cfg)
@@ -134,7 +136,7 @@ def _dispatch_experiment_traced(cfg: ExperimentConfig):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--analytics", required=True, choices=["classification", "clustering", "forecasting", "regression"])
+    ap.add_argument("--analytics", required=True, choices=["classification", "clustering", "forecasting", "regression", "anomaly"])
     ap.add_argument("--compression", required=True, choices=["laconic", "tersets_reduced", "sz", "mixpiece", "serfxor", "adaedge"])
     ap.add_argument("--optimizer", required=True, choices=["genetic", "bosmp", "adaedge"])
     ap.add_argument("--model", required=False)
@@ -182,7 +184,8 @@ if __name__ == "__main__":
         if not model_paths:
             raise FileNotFoundError(f"No model yamls in {analytics_dir}")
 
-    data_configuration["split"]["random_state"] = args.random_state
+    if "split" in data_configuration:
+        data_configuration["split"]["random_state"] = args.random_state
     optimization_configuration["kwargs"]["random_state"] = args.random_state
     compression_configuration["random_state"] = args.random_state
     experiment_alpha = resolve_experiment_alpha(
@@ -214,7 +217,7 @@ if __name__ == "__main__":
         for ds_name in data_configuration["datasets"]:
             loader_name   = data_configuration["loader"]["name"]
             loader_kwargs = data_configuration["loader"]["kwargs"]
-            split         = data_configuration["split"]
+            split         = data_configuration.get("split", {})
 
             cfg = ExperimentConfig(
                 task=args.analytics,
@@ -247,5 +250,5 @@ if __name__ == "__main__":
             df = dispatch(cfg)
             print(df.tail())
 
-            if not args.no_consensus:
+            if not args.no_consensus and args.analytics != "anomaly":
                 _run_consensus(cfg, args, model_cfg["model"]["name"], df)

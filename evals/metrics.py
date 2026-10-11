@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, Optional, Tuple, Sequence
 import numpy as np
 from sklearn import metrics as skm
-from sklearn.preprocessing import label_binarize, MinMaxScaler
+from sklearn.preprocessing import label_binarize
 
 def _is_binary(y_true: np.ndarray) -> bool:
     return np.unique(y_true).shape[0] == 2
@@ -84,12 +84,6 @@ def _pr_auc_macro(y_true, y_score=None, classes=None, **_):
     Y = label_binarize(y_true, classes=classes)
     return float(skm.average_precision_score(Y, y_score, average="macro"))
 
-def _treshold_f1(y_true, y_score, threshold=None, **_):
-    if threshold is None: 
-        threshold = np.mean(y_score)+3*np.std(y_score)
-    y_pred = (y_score >= threshold).astype(int)
-    return float(skm.f1_score(y_true, y_pred))
-
 
 _REGISTRY: Dict[str, MetricSpec] = {
     "accuracy":             MetricSpec(_accuracy,           needs_score=False, value_range=(0.0, 1.0)),
@@ -102,9 +96,6 @@ _REGISTRY: Dict[str, MetricSpec] = {
     "mcc":                  MetricSpec(_mcc,                needs_score=False, value_range=(-1.0, 1.0)),
     "roc_auc_macro":        MetricSpec(_roc_auc_macro,      needs_score=True,  value_range=(0.0, 1.0)),
     "pr_auc_macro":         MetricSpec(_pr_auc_macro,       needs_score=True,  value_range=(0.0, 1.0)),
-    "f1":                   MetricSpec(_treshold_f1,        needs_score=True, value_range=(0.0, 1.0)),
-    "roc_auc":              MetricSpec(_roc_auc_macro,      needs_score=True,  value_range=(0.0, 1.0)),
-    "pr_auc":               MetricSpec(_pr_auc_macro,       needs_score=True,  value_range=(0.0, 1.0)),
     "ari":                  MetricSpec(_ari,                needs_score=False, value_range=(0.0, 1.0)),
     "nmi":                  MetricSpec(_nmi,                needs_score=False, value_range=(0.0, 1.0)),
     "ami":                  MetricSpec(_ami,                needs_score=False, value_range=(0.0, 1.0)),
@@ -136,12 +127,8 @@ def evaluate_metrics(
     *,
     classes: Optional[Sequence] = None,
     analytics: str = "classification",
-    threshold: float = None,
 ) -> Dict[str, float]:
     out: Dict[str, float] = {}
-    
-    if analytics == "anomaly":
-        y_score = MinMaxScaler(feature_range=(0,1)).fit_transform(y_score.reshape(-1,1)).ravel()
 
     for name in names:
         spec = get_metric(name)
@@ -149,8 +136,6 @@ def evaluate_metrics(
             raise ValueError(f"Metric '{name}' needs scores (predict_proba/decision_function).")
         if analytics in ("classification", "clustering"):
             val = spec.fn(y_true=y_true, y_pred=y_pred, y_score=y_score, classes=classes)
-        elif analytics == "anomaly":
-            val = spec.fn(y_true=y_true, y_score=y_score, threshold=threshold)
         elif analytics in ("forecasting", "regression"):
             val = spec.fn(y_true=y_true, y_pred=y_pred)
         else:
@@ -170,12 +155,6 @@ def default_primary_classification_metric():
 def default_report_classification_metrics():
     return ["accuracy", "balanced_accuracy", "precision_macro", "recall_macro", "f1_macro", "roc_auc_macro", "pr_auc_macro"]
 
-def default_primary_anomaly_metric():
-    return "pr_auc"
-
-def default_report_anomaly_metrics():
-    return ["roc_auc","pr_auc","f1"]
-
 def default_primary_clustering_metric():
     return "ari"
 
@@ -189,34 +168,9 @@ def default_report_forecasting_metrics():
     return ["imaape", "maape", "smape", "rmse", "mae", "r2"]
 
 
-def select_threshold_by(y_true, y_score, mode="f1"):
-    """Pick a threshold on validation scores."""
-    if y_score is None or len(y_score)==0: return None
-    if mode == "f1":
-        uniq = np.unique(y_score)
-        best_t, best = None, -1.0
-        for t in uniq:
-            f1 = skm.f1_score(y_true, (y_score>=t).astype(int), zero_division=0)
-            if f1 > best: best, best_t = f1, t
-        return float(best_t)
-    if mode == "youden":
-        fpr, tpr, thr = skm.roc_curve(y_true, y_score)
-        j = tpr - fpr
-        return float(thr[int(np.argmax(j))])
-    raise ValueError(f"Unknown threshold selection mode: {mode}")
-
-
 def classification_metrics(y_true, y_pred) -> dict:
-    return {"accuracy": float(skm.accuracy_score(y_true, y_pred)), 
+    return {"accuracy": float(skm.accuracy_score(y_true, y_pred)),
             "f1_macro": skm.f1_score(y_true, y_pred, average="macro")}
-
-
-def anomaly_metrics(y_true, scores) -> dict:
-    s = np.asarray(scores, dtype=float)
-    if s.size and (s.max() - s.min()) > 0:
-        s = (s - s.min()) / (s.max() - s.min())
-    prec, rec, _ = skm.precision_recall_curve(y_true, s)
-    return {"auc_pr": float(skm.auc(rec, prec))}
 
 
 def combine_fitness(avg_acc: float, avg_cr: float, alpha: float) -> float:

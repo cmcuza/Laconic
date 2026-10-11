@@ -485,7 +485,7 @@ dependencies:
       - transformers==4.56.0
       - triad==0.9.8
       - triton==3.4.0
-      - tsb-ad==1.5
+      - tsb-ad @ git+https://github.com/TheDatumOrg/TSB-AD.git@1ccf0e52bc617e4b02aad4d969742b844698cf32
       - tsfel==0.2.0
       - tsfresh==0.21.1
       - tslearn==0.6.4

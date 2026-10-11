@@ -2,7 +2,7 @@ from __future__ import annotations
 import numpy as np
 from typing import Protocol, Dict, Tuple, Any, List, Type
 
-from .lib.tersets import tersets_compress_series, METHODS
+from .lib.laconic import tersets_compress_series, METHODS
 from .lib.squeeze import sz_compress_series
 from .lib.mixpiece import mixpiece_compress_series
 from .lib.serfxor import serfxor_compress_series

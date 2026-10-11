@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import List, Tuple, Dict
-import compression.lib.laconic as laconic
+import tersets as laconic
 import numpy as np
-from compression.lib.laconic import Method
+from tersets import Method
 import struct
 import math
 import zstandard as zstd

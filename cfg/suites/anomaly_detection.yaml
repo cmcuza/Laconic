@@ -1,0 +1,24 @@
+# Anomaly detection experiments: Sub_PCA on multievent32, five methods, alpha 0.75 and 0.95.
+random_states: [32]
+alpha: [0.75, 0.95]
+budget: 100
+
+tasks:
+  - analytics: anomaly
+    dataset: multievent32
+    model: sub_pca
+
+compressors:
+  - compression: sz
+    optimizers: [bosmp]
+  - compression: mixpiece
+    optimizers: [bosmp]
+  - compression: serfxor
+    optimizers: [bosmp]
+  - compression: adaedge
+    optimizers: [adaedge]
+  - compression: laconic
+    optimizers: [genetic]
+
+auto_consensus: false
+auto_visualize: false

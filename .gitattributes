@@ -36,3 +36,4 @@ data/classification/UCRArchive_2018/Adiac/Adiac_TEST.tsv filter=lfs diff=lfs mer
 data/forecasting/Monash/*.tsf filter=lfs diff=lfs merge=lfs -text
 data/regression/Monash-UCR/*/*.ts filter=lfs diff=lfs merge=lfs -text
 data/classification/UCRArchive_2018/*/*.tsv filter=lfs diff=lfs merge=lfs -text
+data/anomaly/TSB-AD-U/*.csv filter=lfs diff=lfs merge=lfs -text

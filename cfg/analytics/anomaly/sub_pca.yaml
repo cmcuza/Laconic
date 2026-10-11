@@ -1,0 +1,12 @@
+# Sub_PCA from TSB-AD, run with TSB-AD's tuned hyperparameters (periodicity 1, n_components None).
+# Each key in kwargs replaces that one hyperparameter; all other keys keep the tuned value.
+# An unknown key raises TypeError. {} = tuned values unchanged.
+model:
+  name: Sub_PCA
+  kwargs: {}
+
+metrics:
+  primary: VUS-PR
+  extra: [AUC-PR, AUC-ROC, Standard-F1, VUS-PR]
+  # Measure of Q in the objective and in the q_pre_* / q_post_* columns: AUC-PR or VUS-PR.
+  q_measure: VUS-PR

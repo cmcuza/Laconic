@@ -1,0 +1,14 @@
+# TSB-AD-U series with at least 50 anomaly events and at least 20,000 points:
+# 32 series from IOPS, LTDB, MITDB, SVDB and Stock. Built by scripts/anomaly/build_corpus.py.
+loader:
+  name: TSBADULoader
+  kwargs:
+    root: data/anomaly/TSB-AD-U
+    file_list: cfg/datasets/anomaly/file_lists/multievent32.csv
+    # Label split per series, built by scripts/anomaly/build_split.py.
+    split_manifest: cfg/datasets/anomaly/splits/multievent32_split.csv
+
+# No split key: each series is split by its labels, not by a splitter.
+
+datasets:
+  - multievent32

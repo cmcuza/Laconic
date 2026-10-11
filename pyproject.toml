@@ -36,6 +36,9 @@ zstandard = "*"
 tersets = { git = "https://github.com/cmcuza/TerseTS.git", subdirectory = "bindings/python" }
 jpype1 = "*"
 
+# Anomaly detection (detectors, VUS-PR). The PyPI wheel lacks detectors that upstream has.
+tsb-ad = { git = "https://github.com/TheDatumOrg/TSB-AD.git", rev = "1ccf0e52bc617e4b02aad4d969742b844698cf32" }
+
 # Plotting
 matplotlib = "*"
 seaborn = "*"

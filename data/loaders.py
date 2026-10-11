@@ -202,6 +202,72 @@ class MonashUCRLoader:
         return X_test_in_full, y_test
 
 
+def parse_train_index(filename: str) -> int:
+    """Training prefix length encoded in a TSB-AD file name.
+
+    `001_NAB_id_1_Facility_tr_1007_1st_2014.csv` -> 1007. Fields are counted from the
+    right, as in TSB-AD's Run_Detector_U.py, because source names contain underscores.
+    """
+    fields = filename.split(".")[0].split("_")
+    try:
+        return int(fields[-3])
+    except (IndexError, ValueError) as err:
+        raise ValueError(f"'{filename}' does not follow the TSB-AD file naming") from err
+
+
+@dataclass
+class TSBADULoader:
+    """TSB-AD-U series listed in a file list, with a label split per series.
+
+    Args:
+      root: Directory with the TSB-AD-U CSV files.
+      file_list: CSV with a `file_name` column; it fixes the series and their order.
+      split_manifest: CSV with `series`, `val_end` and `test_start` per series. The
+        validation range is [0, val_end) and the test range is [test_start, N).
+    """
+
+    root: str
+    file_list: str
+    split_manifest: str
+
+    def __post_init__(self) -> None:
+        frame = pd.read_csv(self.split_manifest)
+        missing = {"series", "val_end", "test_start"} - set(frame.columns)
+        if missing:
+            raise ValueError(f"{self.split_manifest} is missing columns {sorted(missing)}")
+        self._splits: Dict[str, Tuple[int, int]] = {
+            str(r.series).strip(): (int(r.val_end), int(r.test_start))
+            for r in frame.itertuples()
+        }
+
+    def series_names(self) -> list[str]:
+        names = pd.read_csv(self.file_list)["file_name"].astype(str).tolist()
+        return [n.strip() for n in names if n.strip()]
+
+    def load_split(self, name: str) -> Tuple[int, int]:
+        """(val_end, test_start) for one series."""
+        name = name if name.endswith(".csv") else f"{name}.csv"
+        if name not in self._splits:
+            raise KeyError(f"{name} is not in split manifest {self.split_manifest}")
+        return self._splits[name]
+
+    def load_series(self, name: str) -> Tuple[np.ndarray, np.ndarray, int]:
+        """(values (T, 1), labels (T,), train_index), read as in TSB-AD's Run_Detector_U.py."""
+        name = name if name.endswith(".csv") else f"{name}.csv"
+        # Rows with missing values are dropped before train_index is applied.
+        df = pd.read_csv(os.path.join(self.root, name)).dropna()
+
+        values = df.iloc[:, 0:-1].values.astype(float)
+        labels = df["Label"].astype(int).to_numpy()
+        if values.shape[1] != 1:
+            raise ValueError(f"{name} has {values.shape[1]} channels; only univariate series are supported")
+
+        train_index = parse_train_index(name)
+        if not 0 < train_index < len(values):
+            raise ValueError(f"{name}: train_index {train_index} outside (0, {len(values)})")
+        return values, labels, train_index
+
+
 def build_loaders(name: str, **kwargs) -> Any:
     key = name.strip().lower()
 
@@ -214,7 +280,10 @@ def build_loaders(name: str, **kwargs) -> Any:
     if key in ("monashucr", "regression", "monashucrloader"):
         return MonashUCRLoader(**kwargs)
 
-    raise ValueError(f"Unknown loader '{name}'. Supported: UCRLoader, MonashLoader, MonashUCRLoader")
+    if key in ("tsbadu", "anomaly", "tsbaduloader"):
+        return TSBADULoader(**kwargs)
+
+    raise ValueError(f"Unknown loader '{name}'. Supported: UCRLoader, MonashLoader, MonashUCRLoader, TSBADULoader")
 
 
 def build_splitter(split_cfg: Dict[str, Any]):
